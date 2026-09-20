@@ -1,7 +1,10 @@
-"""Shared constants for the three-age TB macro model."""
+"""Vietnam TB model constants from ``tweak_cases_calib`` (``9cc8cf8``)."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
+# Compartments for TB model. Order matches the summer3 stratifications.
 DISEASE_STATES: tuple[str, ...] = (
     "mtb_naive",
     "incipient",
@@ -11,67 +14,56 @@ DISEASE_STATES: tuple[str, ...] = (
     "treatment",
     "recovered",
 )
-INFECT_COMPS: tuple[str, ...] = ("mtb_naive", "contained", "cleared", "recovered")
-AGES: tuple[str, ...] = ("0", "5", "15")
-INFECTIOUS_STRATA: tuple[str, ...] = ("low", "high")
-CLINICAL_STRATA: tuple[str, ...] = ("subclin", "clin")
+INFECT_COMPS: tuple[str, ...] = (
+    "mtb_naive",
+    "contained",
+    "cleared",
+    "recovered",
+)
+# ``wrap`` indexes these in order. Do not sort them.
+INF_STRATA: tuple[str, ...] = ("low", "high")
+CLIN_STRATA: tuple[str, ...] = ("clin", "subclin")
+PREV_STATES: tuple[str, ...] = ("active", "treatment")
+INFECTED_STATES: tuple[str, ...] = tuple(s for s in DISEASE_STATES if s != "mtb_naive")
 
-# Calendar years. summer3 integrates index time 0 … 199; year = 1800 + index.
-START_YEAR: float = 1800.0
-END_YEAR: float = 1999.0
-N_TIMES: int = 200
+# List, not tuple: the copied input loaders do ``AGE_STRATA + [MAX_AGE]``.
+AGE_STRATA: list[int] = [0, 3, 5, 10, 15, 18, 40, 65]
+AGES: tuple[str, ...] = tuple(str(age) for age in AGE_STRATA)
+MAX_AGE: int = 120
+YOUNG_END_AGE: int = 15
+ACF_MIN_AGE: int = 10
+TOP_AGE_BRACKET_INFLATION: float = 2.0
+CANBERRA_EPS: float = 1e-10
+
+REPO_ROOT: Path = Path(__file__).resolve().parents[2]
+DATA_PATH: Path = REPO_ROOT / "data"
+# Only used by the unused conmat helpers copied with the loaders.
+BASE_PATH: Path = REPO_ROOT
+
+ISO3: str = "VNM"
+START_TIME: float = 1800.0
+END_TIME: float = 2101.0
+CALENDAR_YEAR_MIDPOINT: float = 0.5
+OUTPUT_TIME_STEP: float = 1.0
+# ``arange(1800, 2101)`` has 301 points. summer3 integrates index ``0 … 300``.
+N_TIMES: int = 301
+# Occupied compartments agree to a few parts per million. The absolute floor
+# sits above pre-seed roundoff (~1e-9) left by summer4 having no ``dtmax``.
+PARITY_RTOL: float = 1e-5
+PARITY_ATOL: float = 1e-8
 POP_PER_AGE: float = 1000.0
 
-# Notebook parameters. Time functions see the index, so seed_peak_time 30 is
-# year 1830 and passive_detection_inflection 40 is year 1840.
-BASE_PARAMS: dict[str, float] = {
-    "contact_rate": 0.8,
-    "freq_dens_exponent": 0.5392614891179714,
-    "rel_sus_mtb_naive": 1.0,
-    "rel_sus_contained": 0.3324848208129065,
-    "rel_sus_cleared": 0.7101012998861186,
-    "rel_sus_recovered": 0.7101012998861186,
-    "contain": 2.0,
-    "clearance_rate": 0.05643858771640714,
-    "breakdown_rate": 0.5678500778834155,
-    "progression": 0.1,
-    "increase_infect": 2.799432998282645,
-    "decrease_infect": 1.0,
-    "clinical_development": 2.280456422265371,
-    "clinical_regression": 1.0,
-    "self_recovery": 0.4,
-    "detection": 3.1435769682295085,
-    "treatment_recovery": 0.5,
-    "treatment_relapse": 0.0,
-    "seed_peak_time": 30.0,
-    "seed_peak_rate": 0.01,
-    "seed_duration": 10.0,
-    "recent_detection_rate": 0.7,
-    "passive_detection_shape": 0.12804084477668393,
-    "passive_detection_inflection": 40.0,
-    "passive_detection_past_frac": 0.7117933876877114,
-}
-
-# Turns the flows that a zero-heavy base would leave dark. Applied on top of
-# BASE_PARAMS; the keys are exactly those named in the port plan.
-REINFECTION_OVERRIDES: dict[str, float] = {
-    "rel_sus_mtb_naive": 0.5,
-    "rel_sus_contained": 0.5,
-    "rel_sus_cleared": 0.5,
-    "rel_sus_recovered": 0.5,
-    "contain": 0.1,
-    "clearance_rate": 0.1,
-    "breakdown_rate": 0.1,
-    "freq_dens_exponent": 0.7,
-    "detection": 0.3,
-    "treatment_relapse": 0.05,
-}
-
-FIXTURES: dict[str, dict[str, float]] = {
-    "base": BASE_PARAMS,
-    "reinfection": BASE_PARAMS | REINFECTION_OVERRIDES,
-}
-
-# Rolling-sum positions the original notebook queries: [7:60:7].
-TARGET_SLICE: slice = slice(7, 60, 7)
-CALIBRATION_CONTACT_RATE: float = 0.25
+# Flows whose age-summed instantaneous rates are golden columns.
+FLOW_TOTALS: tuple[str, ...] = (
+    "progression",
+    "detection",
+    "acf",
+    "tb_mortality",
+    "rx_death",
+    "entry_births",
+    "success",
+    "relapse",
+    "seed_peak",
+    *(f"infect_{comp}" for comp in INFECT_COMPS),
+    *(f"nontb_deaths_{age}" for age in AGES),
+)

@@ -1,59 +1,64 @@
-# tb-macro-summer4
+# TB macro model on summer4
 
-TB natural-history model from [`monash-emu/tb_macroeconomics`](https://github.com/monash-emu/tb_macroeconomics),
-reimplemented on [summer4](https://github.com/monash-emu/summer4) `v0.2.0a3`.
+The Vietnam tuberculosis model from
+[`monash-emu/tb_macroeconomics`](https://github.com/monash-emu/tb_macroeconomics)
+branch `tweak_cases_calib` (`9cc8cf8`), reimplemented on
+[summer4](https://github.com/monash-emu/summer4) `v0.2.0a3`.
 
-Numerical parity against summer3wip goldens is the definition of correct. The
-model is the three-age (`0`, `5`, `15`) specification in
-`plans/tb-macro-summer4-port.plan.md`: homogeneous `ones(3, 3)` mixing, both
-detection flows kept. Upstream `tb_macroeconomics` has since added demography
-and a dynamic mixing matrix; those are not in this port.
+Numerical parity against that branch is the definition of correct. This is not
+the three-age model in `plans/tb-macro-summer4-port.plan.md`. There is no
+calibration here: three forward runs, `base`, `nuts_start`, and `acf`.
 
 ```bash
 pixi install
 pixi run test
 ```
 
-Regenerate goldens only in the reference environment, which pins summer3wip and
-does not install summer4:
+Regenerate goldens only in the reference environment, which pins summer3wip
+`15ad51b` and does not install summer4:
 
 ```bash
 pixi run -e reference golden
 ```
 
-`notebooks/01-TBModel.ipynb` is the user gate: run it and check that the
-posterior for `contact_rate` covers 0.25.
+`notebooks/01-InspectRun.ipynb` is the user gate: the default run against the
+`base` golden, with the disease-state plot. `notebooks/02-ReleaseModel.ipynb`
+runs the same parameters with the three summer3 bugs turned off
+(`run(..., release=True)`) and plots that against the golden-matching run.
 
-## Workarounds for the summer4 handoff
+In VS Code, use the default pixi environment as the notebook kernel. From the
+repository root:
 
-These are the gaps the port papers over at tag `v0.2.0a3`. `grep -n GLUE src`
-finds the ones a later package deletes.
+```bash
+pixi install
+pixi run install-kernel
+```
 
-- **TM3** — ageing is a hand-written `TraitChain` with rates `1/5` and `1/10`.
-- **TM4** — triangular seed and tanh detection scale-up are `Transform`s.
-  Calendar time is shifted by 1800 before those functions, because the original
-  solver's `t` is the save index. The vendored `jnp.clip(..., a_min=)` does not
-  exist on JAX 0.11; both sides use `jnp.maximum(..., 0)`.
-- **TM5** — force of infection is a `derived_fn`: `ones(3, 3) @ (I / N**exp) *
-  contact_rate`, with `rel_sus_*` as `Multiply` adjustments. `I` is unweighted
-  `active`.
-- **TM6** — no glue. `InitialPopulation` already does this. The seed is one
-  compartment per age, so the ragged even-split is not exercised.
-- **TM8** — hand-written numpyro. `CompiledModel.run` is not vmap-safe, so
-  chains are sequential rather than `vectorized`. Current numpyro rejects the
-  original `Poisson(target).log_prob(continuous_sum)`; the port uses the same
-  formula via `gammaln`. The two leading target entries are 0, and `log(0)`
-  makes the gradient NaN, so those entries are left out of the factor.
-- **Solver.** summer4 uses `dt` as Dopri5's initial step and cannot set
-  `dtmax`. The reference uses `dt0=0.1` and `dtmax=1`. The port passes
-  `dt=0.1`. With that, compartments, flows and the target match the goldens at
-  `rtol=1e-6`, `atol=1e-9`.
-- **Save plan.** An empty `SavePlan` also stores every parameter path, and
-  those paths overwrite flows that share a name (`detection`, `progression`,
-  `self_recovery`, `treatment_recovery`, `treatment_relapse`). The run saves
-  compartments and flows explicitly.
-- **Float64.** The port turns on `jax_enable_x64`. summer4 does not. The
-  reference does, inside summer3.
-- **Both detection flows are kept**, constant `passive_detection` and the
-  time-varying `detection` on clinical active disease.
+Then open a notebook and choose **tb-macro-summer4 (pixi)**. The workspace
+setting `python.defaultInterpreterPath` points at `.pixi/envs/default/bin/python`,
+which is the same environment. Do not use the `reference` environment for these
+notebooks: it does not install summer4.
 
+## Workarounds
+
+`grep -n GLUE src` finds the stand-ins a later summer4 package can delete.
+
+- **TM3** — ageing is one hand-written `TraitChain`, rate `1/width` on each of
+  the seven steps `0→3→5→10→15→18→40→65`.
+- **TM4** — the triangular seed and the cosine detection scale-up are
+  `Transform`s of the copied functions. Solver `t` is the summer3 index;
+  calendar year is `t + 1800`.
+- **TM5 / KI6** — force of infection, the spectrally normalised mixing matrix,
+  per-age death rates, treatment hazards and the ACF rate are one `derived_fn`.
+  `ForceOfInfection` cannot express infectiousness on two properties, the
+  under-15 transmission mask, or a matrix rebuilt every step.
+- **KI10** — death rates are eight `jnp.interp` calls. `Interp` is scalar-only.
+- **Entry births** can be negative. `EntryFlow` applies the value as an
+  absolute inflow, which is what summer3 does.
+- **Progression** keeps summer3's 1/2 scatter, then multiplies by
+  `1 - progression_prop_infectious` and `progression_prop_infectious`.
+- **Solver.** Goldens use Dopri5, initial step `0.1`, `rtol=atol=1e-9`,
+  `max_steps=20_000`, and no `dtmax`. The tb_macroeconomics notebooks pass only
+  `max_steps=4000` and inherit the summer3 runner: `rtol=atol=1e-5`, `dtmax=1`.
+  `CompiledModel.run` accepts those controls. `run()` does not pass them.
+- **Float64.** Enabled in `tb_macro/__init__.py`. summer3 turns it on at import.

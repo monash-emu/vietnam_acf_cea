@@ -8,6 +8,7 @@ python = "3.13.*"
 pandas = ">=2.2"
 pyarrow = "*"
 jupyterlab = "*"
+ipykernel = "*"
 pytest = "*"
 black = "*"
 
@@ -25,11 +26,12 @@ test-slow = "pytest -q -m slow"
 format = "black src tests reference/make_golden.py"
 format-check = "black --check src tests reference/make_golden.py"
 notebook = "jupyter lab notebooks"
+install-kernel = "python -m ipykernel install --sys-prefix --name tb-macro-summer4 --display-name 'tb-macro-summer4 (pixi)'"
 
 [feature.reference]
 platforms = ["osx-arm64", "linux-64"]
 dependencies = { python = "3.13.*", pandas = "*", pyarrow = "*" }
-pypi-dependencies = { summer3 = { git = "https://github.com/monash-emu/summer3wip.git", rev = "22d3aa691319eedad2da77e819f8f06daf07c06a" }, jax = ">=0.9", jaxlib = ">=0.9", diffrax = ">=0.7.2, <0.8", numpyro = ">=0.20, <0.21" }
+pypi-dependencies = { summer3 = { git = "https://github.com/monash-emu/summer3wip.git", rev = "15ad51b44f3c4de687aa33e8e9c6213d3e228e30" }, jax = "==0.9.1", jaxlib = "==0.9.1", diffrax = ">=0.7.2, <0.8", numpyro = ">=0.20, <0.21", arviz = "==0.23.4" }
 tasks = { golden = "python reference/make_golden.py" }
 
 [environments]

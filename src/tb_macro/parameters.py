@@ -1,0 +1,147 @@
+BASE_PARAMS = {
+    "rel_sus_mtb_naive": 1.0,  # Required, but should remain one by definition
+    "rel_infectiousness_subclin": 0.5,
+    "rel_infectiousness_lowinf": 0.4,
+    "progression_rate_age0": 2.4,
+    "progression_rate_age5": 2.0,
+    "progression_rate_age15": 0.1,
+    "progression_prop_infectious": 0.2,
+    "containment_rate_age0": 4.4,
+    "containment_rate_age5": 4.4,
+    "containment_rate_age15": 2.0,
+    "clinical_regression_rate": 1.0,
+    "infectiousness_loss_rate": 1.0,
+    "tb_mortality_rate_inf": 0.389,
+    "tb_mortality_rate_lowinf": 0.025,
+    "self_recovery_rate": 0.4,
+    "rx_duration": 0.5,  # Should remain at this value
+    "seed_peak_time": 1830.0,
+    "seed_duration": 10.0,
+    "seed_peak_rate": 0.01,
+    "acf_coverage": 0.0,
+    "acf_sensitivity_high": 0.96,
+    "acf_sensitivity_low": 0.775,
+    "acf_start": 2027,
+    "acf_duration": 5.0,
+    "acf_scaling_time": 1.0,
+    "raw_transmission_rate": 14.08,
+    "bg_mixing": 0.0103,
+    "a_spread": 9.87,
+    "pc_strength": 0.544,
+    "rel_sus_contained": 0.547,
+    "rel_sus_cleared": 0.8,
+    "rel_sus_children": 0.235,
+    "breakdown_rate": 0.5,
+    "clearance_rate": 0.088,
+    "clinical_progression_rate": 1.85,
+    "infectiousness_gain_rate": 0.350,
+    "detect_rate_current": 0.861,
+    "rel_detect_2007": 0.6,
+    "rel_detect_1986": 0.6,
+    "rel_detect_2021": 0.5,
+    "prop_lowinf_bactpos": 2.0 / 3.0,
+    "mixing_dist_sd": 10.0,
+}
+PARAM_BOUNDS = {
+    "raw_transmission_rate": [8.0, 20.0],
+    "bg_mixing": [0.001, 0.02],
+    "a_spread": [2.0, 15.0],
+    "pc_strength": [0.05, 1.0],
+    "rel_sus_contained": [0.2, 0.8],
+    "rel_sus_cleared": [0.2, 0.8],
+    "rel_sus_children": [0.2, 0.8],
+    "breakdown_rate": [0.01, 0.5],
+    "clearance_rate": [0.01, 0.1],
+    "clinical_progression_rate": [0.5, 5.0],
+    "infectiousness_gain_rate": [0.1, 1.0],
+    "detect_rate_current": [0.5, 1.5],
+    "rel_detect_2007": [0.6, 0.9],
+    "rel_detect_1986": [0.6, 0.9],
+    "rel_detect_2021": [0.4, 0.8],
+    "mixing_dist_sd": [5.0, 20.0],
+}
+
+
+def get_nuts_init_values(eps: float = 1e-4) -> dict[str, float]:
+    """Interior NUTS starting values from BASE_PARAMS.
+
+    Uniform priors are open at the endpoints, so values that sit on
+    PARAM_BOUNDS are pulled a fraction of the interval inside.
+    """
+    init = {}
+    for name, (low, high) in PARAM_BOUNDS.items():
+        value = float(BASE_PARAMS[name])
+        pad = eps * (high - low)
+        init[name] = min(max(value, low + pad), high - pad)
+    return init
+
+
+PARAM_NAMES = {
+    "rel_infectiousness_subclin": "relative infectiousness of subclinical TB",
+    "rel_infectiousness_lowinf": "relative infectiousness of low-infectious TB",
+    "infectiousness_gain_rate": "rate of infectiousness increase",
+    "infectiousness_loss_rate": "rate of infectiousness decrease",
+    "acf_coverage": "active case finding coverage",
+    "acf_sensitivity_high": "active case finding sensitivity for high-infectious TB",
+    "acf_sensitivity_low": "active case finding sensitivity for low-infectious TB",
+    "acf_start": "active case finding start year",
+    "acf_duration": "active case finding duration",
+    "acf_scaling_time": "active case finding scale-up time",
+    "prop_lowinf_bactpos": "proportion of low-infectious TB that is bacteriologically positive",
+    "clearance_rate": "clearance rate",
+    "breakdown_rate": "breakdown rate",
+    "clinical_progression_rate": "rate of clinical progression",
+    "clinical_regression_rate": "rate of clinical regression",
+    "self_recovery_rate": "self-recovery rate",
+    "tb_mortality_rate_lowinf": "TB mortality rate for low-infectious disease",
+    "tb_mortality_rate_inf": "TB mortality rate for high-infectious disease",
+    "seed_peak_time": "seeding peak year",
+    "seed_peak_rate": "seeding peak rate",
+    "seed_duration": "seeding duration",
+    "rel_sus_children": "relative susceptibility of never-infected children",
+    "rel_sus_mtb_naive": "relative susceptibility of the never-infected",
+    "rel_sus_contained": "relative susceptibility of contained infection",
+    "rel_sus_cleared": "relative susceptibility of cleared or recovered infection",
+    "raw_transmission_rate": "raw transmission rate",
+    "bg_mixing": "background mixing",
+    "a_spread": "assortative mixing spread",
+    "pc_strength": "parent-child mixing strength",
+    "containment_rate_age0": "containment rate under 5 years",
+    "containment_rate_age5": "containment rate ages 5 to 15",
+    "containment_rate_age15": "containment rate ages 15 and over",
+    "progression_rate_age0": "progression rate under 5 years",
+    "progression_rate_age5": "progression rate ages 5 to 15",
+    "progression_rate_age15": "progression rate ages 15 and over",
+    "progression_prop_infectious": "proportion of progressions that are high-infectious",
+    "detect_rate_current": "current detection rate",
+    "rel_detect_2007": "relative detection rate in 2007 compared to current",
+    "rel_detect_1986": "relative detection rate in 1986 compared to 2007",
+    "rel_detect_2021": "COVID-19-related detection reduction",
+    "rx_duration": "treatment duration",
+    "mixing_dist_sd": "mixing matrix distance standard deviation",
+}
+PARAM_ABBREVS = {
+    "rel_detect_2007": "relative detection rate, 2007",
+    "rel_detect_1986": "relative detection rate, 1986",
+    "rel_sus_cleared": "cleared/recovered susceptibility",
+}
+
+_unknown_name = set(PARAM_NAMES) - set(BASE_PARAMS)
+if _unknown_name:
+    raise ValueError(f"PARAM_NAMES keys absent from BASE_PARAMS: {_unknown_name}")
+_unnamed = set(BASE_PARAMS) - set(PARAM_NAMES)
+if _unnamed:
+    raise ValueError(f"BASE_PARAMS keys missing from PARAM_NAMES: {_unnamed}")
+
+
+def fixtures() -> dict[str, dict[str, float]]:
+    """Forward-run parameter sets. No posterior samples.
+
+    ``nuts_start`` is what NUTS would have used as its initial point.
+    ``acf`` turns on the campaign that ``BASE_PARAMS`` leaves at zero.
+    """
+    return {
+        "base": dict(BASE_PARAMS),
+        "nuts_start": dict(BASE_PARAMS) | get_nuts_init_values(),
+        "acf": dict(BASE_PARAMS) | {"acf_coverage": 0.8},
+    }

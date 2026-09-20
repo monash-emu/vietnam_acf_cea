@@ -1,0 +1,377 @@
+from jax import numpy as jnp
+
+from tb_macro.constants import AGE_STRATA, CANBERRA_EPS, MAX_AGE
+
+
+def get_year_index(
+    ends: jnp.array,
+    time: float,
+) -> jnp.array:
+    """Get the relevant row index from a former dataframe
+    with consecutive index values representing years
+    given a time/year input.
+
+    Args:
+        ends: The values representing the start and finish of the
+            former dataframe's index
+        time: Model time
+
+    Returns:
+        The relevant row of data
+    """
+    clamped_time = jnp.clip(time, ends[0], ends[1])
+    return (clamped_time - ends[0]).astype(jnp.int32)
+
+
+def build_s_matrix_single_age_components(
+    fert: jnp.array,
+    fert_ends: jnp.array,
+    time: float,
+    bg_mixing: float,
+    a_spread: float,
+    pc_strength: float,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Split the single-age transmission kernel into its three components.
+
+    Args:
+        fert: The fertility data (padded with zeroes)
+        fert_ends: The start and finish of the fertility index
+        time: Model time
+        bg_mixing: Background mixing value
+        a_spread: Decay parameter for assortative mixing
+        pc_strength: Scaling parameter for parent-child contacts
+
+    Returns:
+        Background, assortative, parent-child and overall kernels,
+            each (MAX_AGE + 1) x (MAX_AGE + 1)
+    """
+    ages = jnp.arange(MAX_AGE + 1)
+    n_ages = MAX_AGE + 1
+
+    age_diff_mat = jnp.abs(ages[:, None] - ages[None, :])
+    assortative = (1.0 / a_spread) * jnp.exp(-age_diff_mat / a_spread)
+
+    age_gap_mat = age_diff_mat.astype(jnp.int32)
+    child_age_mat = jnp.minimum(ages[:, None], ages[None, :])
+    child_birth_years = time - child_age_mat
+    clamped_birth_years = get_year_index(fert_ends, child_birth_years)
+    parent_child = pc_strength * fert[clamped_birth_years, age_gap_mat]
+
+    background = jnp.full((n_ages, n_ages), bg_mixing)
+    overall = background + assortative + parent_child
+    return background, assortative, parent_child, overall
+
+
+def build_s_matrix_single_age(
+    fert: jnp.array,
+    fert_ends: jnp.array,
+    time: float,
+    bg_mixing: float,
+    a_spread: float,
+    pc_strength: float,
+) -> jnp.array:
+    r"""Construct the full single-age transmission kernel matrix.
+
+    Args:
+        fert: The fertility data (padded with zeroes)
+        fert_ends: The start and finish of the fertility index
+        time: Model time
+        bg_mixing: Background mixing value
+        a_spread: Decay parameter for assortative mixing
+        pc_strength: Scaling parameter for parent-child contacts
+
+    Returns:
+        (MAX_AGE + 1) x (MAX_AGE + 1) unweighted transmission kernel
+
+    Notes:
+    -----
+    The single-age mixing kernel is the sum of three components and
+    is independent of population size. That is, it represents
+    the frequency at which two specific individuals
+    from each of the two nominated age groups come into contact.
+    It is calculated in single years of age from 0 to {{MAX_AGE}}.
+    To populate this matrix, background mixing is first added as
+    a constant value to every age group pair, using the parameter "{{bg_mixing}}".
+    Assortative mixing between closer ages is then added as a function that
+    decays exponentially with increasing difference
+    in age between each pair of groups ($i$ and $j$), as
+    $(1/a)\exp(-|i-j|/a)$, where $a$ is the "{{a_spread}}" parameter.
+    Last, parent-child mixing is added by multiplying
+    the "{{pc_strength}}" parameter by fertility at
+    the younger person's year of birth, indexed by the age gap
+    (that is, the implied age of the parent at that birth).
+    As such, this mixing kernel changes over time throughout
+    the simulation according to fertility data inputs.
+    Further, the relative strength of each of the three
+    contributions to mixing are adjusted at each calibration iteration.
+    """
+    _, _, _, overall = build_s_matrix_single_age_components(
+        fert, fert_ends, time, bg_mixing, a_spread, pc_strength
+    )
+    return overall
+
+
+def get_full_normalised_within_age_band_weights(
+    current_weights: jnp.array,
+) -> jnp.array:
+    """Embed within-group age distributions into full age space.
+
+    Constructs a matrix W where each row corresponds to an age group and contains
+    the distribution of single-year ages within that group, with zeros elsewhere.
+
+    Each row therefore represents a probability distribution over ages conditional
+    on belonging to that age group (therefore summing to one).
+
+    This allows group-level interactions to be computed by projecting the full
+    single-age kernel into group space via matrix multiplication.
+
+    Args:
+        current_weights: Array of length (MAX_AGE + 1) giving the relative population
+            weights of each single age, assumed to already be normalised within each age
+
+    Returns:
+        The weight matrix
+    """
+    w_group = jnp.zeros((len(AGE_STRATA), MAX_AGE + 1))
+    for a, lower in enumerate(AGE_STRATA):
+        upper = MAX_AGE + 1 if lower == AGE_STRATA[-1] else AGE_STRATA[a + 1]
+        w_group = w_group.at[a, lower:upper].set(current_weights[lower:upper])
+    return w_group
+
+
+def aggregate_full_matrix_to_groups(
+    full_kernel: jnp.array,
+    current_weights: jnp.array,
+) -> jnp.array:
+    """Aggregate a single-age transmission kernel to age-group level.
+
+    This function combines the detailed single-age kernel with the age structure
+    of each group to produce a smaller matrix defined over age groups.
+
+    The process works by:
+    - Representing each age group as a distribution over single-year ages
+    (a row in the weight matrix)
+    - Using these distributions to take weighted averages across the full kernel
+
+    Each entry in the resulting matrix can be interpreted as:
+    the expected interaction intensity between a randomly chosen individual
+    from one age group (row) and a randomly chosen individual from another
+    age group (column), based on their underlying age distributions.
+
+    Args:
+        full_kernel: (MAX_AGE + 1) x (MAX_AGE + 1) unweighted kernel
+        current_weights: Weight distribution across all single ages
+
+    Returns:
+        len(AGE_STRATA) x len(AGE_STRATA) weighted group transmission matrix
+
+    Notes:
+    -----
+    The group-level kernel is obtained by aggregating the
+    single-age kernel using these within-group age distributions.
+    Each cell value of the resulting matrix represents the mixing intensity
+    between an individual from one age group and one from the other.
+    """
+    w_group = get_full_normalised_within_age_band_weights(current_weights)
+    return w_group @ full_kernel @ w_group.T
+
+
+def build_s_matrix(
+    weights: jnp.array,
+    weight_ends: jnp.array,
+    fert: jnp.array,
+    fert_ends: jnp.array,
+    time: float,
+    bg_mixing: float,
+    a_spread: float,
+    pc_strength: float,
+) -> jnp.array:
+    """Construct the group-level mixing matrix S.
+
+    This function:
+    1. Retrieves the within-group age distributions for the current time
+    2. Builds the single-age interaction kernel
+    3. Aggregates to age-group level via weighted projection
+
+    The resulting matrix represents per-pair interaction intensities between
+    age groups, independent of population sizes.
+
+    Args:
+        weights: Within age brackets weight by age group and year
+        weight_ends: The start and finish of the weight index
+        fert: The fertility data (padded with zeroes)
+        fert_ends: The start and finish of the fertility index
+        time: Model time
+        bg_mixing: Background mixing value
+        a_spread: Decay parameter for assortative mixing
+        pc_strength: Scaling parameter for the strength of parent-child contacts
+
+    Returns:
+        The s_matrix matrix (n_groups x n_groups)
+    """
+    year_idx = get_year_index(weight_ends, time)
+    current_weights = weights[year_idx, :]
+
+    # Compute full single-age transmission kernel (unweighted)
+    full_kernel = build_s_matrix_single_age(fert, fert_ends, time, bg_mixing, a_spread, pc_strength)
+
+    # Aggregate to group level with weighting
+    return aggregate_full_matrix_to_groups(full_kernel, current_weights)
+
+
+def build_c_matrix(
+    weights: jnp.array,
+    weight_ends: jnp.array,
+    pops: jnp.array,
+    pop_ends: jnp.array,
+    fert: jnp.array,
+    fert_ends: jnp.array,
+    time: float,
+    bg_mixing: float,
+    a_spread: float,
+    pc_strength: float,
+) -> jnp.array:
+    """Construct the population-scaled contact matrix C.
+
+    This rescales the per-pair interaction matrix S to account for population sizes,
+    producing a matrix C suitable for use in frequency-dependent transmission models.
+
+    Each column is multiplied by the population size of the contacting/infecting group.
+
+    This represents the total rate at which individuals in the group represented
+    by the matrix rows encounter individuals from the groups represented by the columns.
+
+    Args:
+        weights: Within age brackets weight by age group and year
+        weight_ends: The start and finish of the weight index
+        pops: Population sizes by age group
+        pop_ends: The start and finish of the population index
+        fert: The fertility data (padded with zeroes)
+        fert_ends: The start and finish of the fertility index
+        time: Model time
+        bg_mixing: Background mixing value
+        a_spread: Decay parameter for assortative mixing
+        pc_strength: Scaling parameter for the strength of parent-child contacts
+
+    Returns:
+        The C matrix
+
+    Notes:
+    -----
+    Each column of the group-level kernel is multiplied by the population of
+    that (i.e. the infecting) age group, converting the per pair of individuals
+    intensities into population-scaled contact rates.
+    The resulting matrix contains values representing the rate at which
+    a person from the age group represented by each row of the matrix
+    comes into contact with _any_ person from the age group represented by
+    the column.
+    """
+    year_idx = get_year_index(pop_ends, time)
+    pops = pops[year_idx, :]
+    s_mat = build_s_matrix(
+        weights, weight_ends, fert, fert_ends, time, bg_mixing, a_spread, pc_strength
+    )
+    return pops[None, :] * s_mat
+
+
+def get_norm_c_matrix(
+    weights: jnp.array,
+    weight_ends: jnp.array,
+    pops: jnp.array,
+    pop_ends: jnp.array,
+    fert: jnp.array,
+    fert_ends: jnp.array,
+    time: float,
+    bg_mixing: float,
+    a_spread: float,
+    pc_strength: float,
+) -> jnp.array:
+    """Normalise the contact matrix by its spectral radius.
+
+    Constructs the population-scaled contact matrix and rescales it so that its
+    dominant eigenvalue (spectral radius) is equal to 1.
+
+    This is useful for calibrating transmission models, as the spectral radius of
+    the "c" matrix is directly related to the basic reproduction number under homogeneous
+    infectiousness assumptions.
+
+    Args:
+        weights: Within age brackets weight by age group and year
+        weight_ends: The start and finish of the weight index
+        pops: Population sizes by age group
+        pop_ends: The start and finish of the population index
+        fert: The fertility data (padded with zeroes)
+        fert_ends: The start and finish of the fertility index
+        time: Model time
+        bg_mixing: Background mixing value
+        a_spread: Decay parameter for assortative mixing
+        pc_strength: Scaling parameter for the strength of parent-child contacts
+
+    Returns:
+        The normalised C matrix
+
+    Notes:
+    -----
+    The population-scaled contact matrix is divided by its
+    spectral radius, such that the dominant eigenvalue is one.
+    This allows the intensity of transmission to be controlled through
+    other parameters, such that the mixing matrix construction controls
+    the relative intensity of transmission between age groups.
+    """
+    c_matrix = build_c_matrix(
+        weights,
+        weight_ends,
+        pops,
+        pop_ends,
+        fert,
+        fert_ends,
+        time,
+        bg_mixing,
+        a_spread,
+        pc_strength,
+    )
+    return normalise_by_spectral_radius(c_matrix)
+
+
+def normalise_by_spectral_radius(
+    matrix: jnp.array,
+) -> jnp.array:
+    """Divide a square matrix by its spectral radius.
+
+    Args:
+        matrix: Square matrix to normalise
+
+    Returns:
+        The matrix scaled so that its dominant eigenvalue is one
+    """
+    eigvals = jnp.linalg.eigvals(matrix)
+    spectral_radius = jnp.max(jnp.abs(eigvals))
+    return matrix / spectral_radius
+
+
+def canberra_distance(
+    m1: jnp.array,
+    m2: jnp.array,
+) -> jnp.array:
+    r"""Canberra distance between two matrices of the same shape.
+
+    Args:
+        m1: First matrix
+        m2: Second matrix
+
+    Returns:
+        The Canberra distance
+
+    Notes:
+    -----
+    The Canberra distance is the sum over corresponding cells of the
+    absolute difference divided by the sum of the absolute values,
+    $$
+    d = \sum_{i,j}
+    \frac{|x_{ij} - y_{ij}|}{|x_{ij}| + |y_{ij}| + \varepsilon}
+    $$
+    with $\varepsilon =$ {{CANBERRA_EPS}} to avoid division by zero.
+    """
+    x = m1.reshape(-1)
+    y = m2.reshape(-1)
+    return jnp.sum(jnp.abs(x - y) / (jnp.abs(x) + jnp.abs(y) + CANBERRA_EPS))

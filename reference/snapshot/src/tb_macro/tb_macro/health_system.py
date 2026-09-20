@@ -1,0 +1,256 @@
+from jax import numpy as jnp
+import pandas as pd
+import numpy as np
+
+from summer3.epi import (
+    TransitionFlow,
+    Stratification,
+    CompartmentalEpiModel,
+)
+from summer3.graph import defer, Time, Parameter
+
+from tb_macro.utils import get_scale_data, get_cos_multicurve
+from tb_macro.demography import make_multi_interp_array_func
+
+
+def add_detection(
+    epi_model: CompartmentalEpiModel,
+    disease_state: Stratification,
+    clin_strat: Stratification,
+    start_time: float,
+):
+    r"""Add the process of disease detection to the model.
+
+    Args:
+        epi_model: The epidemiological model to add the flows to
+        disease_state: The compartmental stratification object
+        clin_strat: The clinical stratification object
+        start_time: The model starting time as a calendar year
+
+    Notes:
+    -----
+    Passive case detection moves people with clinical active TB onto
+    treatment. Only clinical disease is detected by this process,
+    with subclinical disease not affected.
+    The rate of detection remains zero until 1957 and then 
+    follows a cosine-smoothed scale-up through 1986 and 2007 
+    to the "{{detect_rate_current}}" in 2014, the year of Vietnam's
+    National TB Strategy. The 2007 rate is 
+    the current rate multiplied by the "{{rel_detect_2007}}" parameter, 
+    and the 1986 rate is that 2007 rate multiplied by the "{{rel_detect_1986}}".
+    To account for the effects of the COVID-19 pandemic, 
+    detection falls at the start of 2021 to the current rate multiplied
+    by the "{{rel_detect_2021}}" parameter, remains at that reduced rate
+    through most of the year, and returns to the current rate at the 
+    start of 2022.
+    """
+    detect_rate_now = Parameter("detect_rate_current", 0.0)
+    detect_rate_2007 = detect_rate_now * Parameter("rel_detect_2007", 0.0)
+    detect_rate_1986 = detect_rate_2007 * Parameter("rel_detect_1986", 0.0)
+    detect_rate_1957 = 0.0
+    detect_rate_covid = detect_rate_now * Parameter("rel_detect_2021", 0.0)
+
+    sim_time = Time + start_time
+
+    def detect_curve(t, r1957, r1986, r2007, r_now, r_covid):
+        times = get_scale_data(
+            jnp.array(
+                [
+                    1957.0,
+                    1986.0,
+                    2007.0,
+                    2014.0,
+                    2021.0,
+                    2021.25,
+                    2021.75,
+                    2022.0,
+                ]
+            )
+        )
+        vals = get_scale_data(
+            jnp.array(
+                [
+                    r1957,
+                    r1986,
+                    r2007,
+                    r_now,
+                    r_now,
+                    r_covid,
+                    r_covid,
+                    r_now,
+                ]
+            )
+        )
+        return get_cos_multicurve(t, times, vals)
+
+    detect_func = defer(detect_curve)(
+        sim_time,
+        detect_rate_1957,
+        detect_rate_1986,
+        detect_rate_2007,
+        detect_rate_now,
+        detect_rate_covid,
+    )
+
+    source = (disease_state["active"], clin_strat["clin"])
+    dest = disease_state["treatment"]
+    detect = TransitionFlow("detection", source, dest, detect_func)
+    epi_model.add_flow(detect)
+
+
+def compute_outcome_props(
+    rx_duration: float,
+    prop_neg_rx_death: float,
+    tsr: float,
+    death_rate: np.array,
+) -> dict[str, np.array]:
+    r"""Get the numeric values for all the treatment outcomes.
+
+    Args:
+        rx_duration: Treatment duration in model time units (years)
+        prop_neg_rx_death: Proportion of unsuccessful treatment outcomes resulting in death
+        tsr: Treatment success rate
+        death_rate: Natural death rate
+
+    Returns:
+        Treatment outcome proportions for each of the three outcomes
+
+    Notes:
+    -----
+    The probability of background death during a course of
+    treatment was calculated as $1 - \exp(-\delta \mu)$, 
+    where $\delta$ is the "{{rx_duration}}" parameter and $\mu$ is 
+    the age-specific background mortality rate. The remaining 
+    proportion is then split according to the treatment success
+    rate and the proportion of unsuccessful outcomes that are
+    deaths. Background deaths already counted are subtracted from
+    the death proportion, such that only the additional deaths 
+    during treatment in excess of background mortality
+    are attributed to the TB-related mortality transition.
+    The remaining proportion of the unsuccessful fraction 
+    after treatment-related deaths have been subtracted 
+    was considered as relapse.
+    """
+    prop_nat_death_on_rx = 1.0 - jnp.exp(-rx_duration * death_rate)
+    req_prop_death_on_rx = (1.0 - tsr) * prop_neg_rx_death
+    prop_death_from_rx = jnp.maximum(req_prop_death_on_rx - prop_nat_death_on_rx, 0.0)
+    prop_total_death = prop_death_from_rx + prop_nat_death_on_rx
+    relapse_prop = jnp.maximum(1.0 - tsr - prop_total_death, 0.0)
+    success = jnp.maximum(1.0 - relapse_prop - prop_total_death, 0.0)
+    return {"success": success, "relapse": relapse_prop, "rx_death": prop_death_from_rx}
+
+
+def get_outcome_rates(
+    dur: float,
+    prop_neg_rx_death: float,
+    tsr: float,
+    death_rate: np.array,
+    age_strat,
+) -> np.array:
+    """Get the flow rates for the treatment outcomes.
+
+    Args:
+        dur: Treatment duration in model time units (years)
+        prop_neg_rx_death: Proportion of unsuccessful treatment outcomes resulting in death
+        tsr: Treatment success rate
+        death_rate: Natural death rate
+        age_strat: The age stratification object
+
+    Returns:
+        Flow rates for success, relapse and death during treatment
+
+    Notes:
+    -----
+    Each treatment outcome proportion is converted to a
+    competing hazard by dividing by the treatment duration.
+    """
+    outcome_props = compute_outcome_props(dur, prop_neg_rx_death, tsr, death_rate)
+    return {
+        outcome: age_strat.categories().wrap(result / dur)
+        for outcome, result in outcome_props.items()
+    }
+
+
+def add_treatment_flows(
+    death_rates: pd.DataFrame,
+    start_time: float,
+    epi_model: CompartmentalEpiModel,
+    disease_state: Stratification,
+    age_strat: Stratification,
+    infect_strat: Stratification,
+    clin_strat: Stratification,
+    tsr_data: pd.DataFrame,
+    death_in_unsucc_data: pd.DataFrame,
+):
+    """Add treatment-related outcome flows to epi model.
+
+    Args:
+        death_rates: The death rate data
+        start_time: The model starting time as a calendar year
+        epi_model: The epidemiological model to add the flows to
+        disease_state: The compartmental stratification object
+        age_strat: The age stratification object
+        infect_strat: The infectiousness stratification
+        clin_strat: The clinical stratification
+        tsr_data: Treatment success rate by calendar time
+        death_in_unsucc_data: Proportion of unsuccessful outcomes that are deaths,
+            by calendar time
+
+    Notes:
+    -----
+    People on treatment leave the treatment compartment through one of 
+    the three possible outcomes (success, relapse and death), 
+    with the scaling rates interpolated over calendar time.
+    Treatment success returns people to the recovered compartment.
+    Relapse returns them to subclinical, low-infectious active TB.
+    As for non-TB-related deaths, each death during treatment is 
+    replaced by an _Mtb_-naive birth into the youngest age group.
+    """
+
+    # TSR calculations
+    tsr_times = get_scale_data(np.array(tsr_data.index))
+    tsr_vals = get_scale_data(np.array(tsr_data))
+    sim_time = Time + start_time
+    tsr_func = defer(lambda t: get_cos_multicurve(t, tsr_times, tsr_vals))(sim_time)
+
+    # Death in unsuccessful outcomes calculations
+    death_unsucc_times = get_scale_data(np.array(death_in_unsucc_data.index))
+    death_unsucc_vals = get_scale_data(np.array(death_in_unsucc_data))
+
+    def death_unsucc_curve(t):
+        return get_cos_multicurve(t, death_unsucc_times, death_unsucc_vals)
+
+    death_unsucc_func = defer(death_unsucc_curve)(sim_time)
+
+    # Natural death calculations
+    death_times = np.array(
+        death_rates.index
+    )  # FIXME: Does this this need get_scale_data
+    death_vals = np.array(death_rates)
+    death_array_func = make_multi_interp_array_func(death_times, death_vals, start_time)
+    death_func = defer(death_array_func)(Time)
+
+    # Other common variables
+    all_age_strata = age_strat[age_strat.strata]
+    source = (disease_state["treatment"], all_age_strata)
+
+    # Get all outcome rates
+    dur = Parameter("rx_duration", 0.0)
+    out_rates = defer(get_outcome_rates)(
+        dur, death_unsucc_func, tsr_func, death_func, age_strat
+    )
+
+    # Success
+    dest = (disease_state["recovered"], all_age_strata)
+    flow = TransitionFlow("success", source, dest, out_rates["success"])
+    epi_model.add_flow(flow)
+
+    # Relapse
+    dest = (clin_strat["subclin"], infect_strat["low"], all_age_strata)
+    flow = TransitionFlow("relapse", source, dest, out_rates["relapse"])
+    epi_model.add_flow(flow)
+
+    # Death on treatment
+    dest = (disease_state["mtb_naive"], age_strat["0"])
+    flow = TransitionFlow("rx_death", source, dest, out_rates["rx_death"])
+    epi_model.add_flow(flow)
