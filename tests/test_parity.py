@@ -30,7 +30,7 @@ def test_progression_edge_weights_are_even() -> None:
 
 
 def test_summer4_import_and_goldens_present() -> None:
-    assert version("summer4") == "0.2.0a1"
+    assert version("summer4") == "0.2.0a3"
     for name in FIXTURES:
         for filename in ("compartments.parquet", "flows.parquet", "target.parquet", "params.yaml"):
             assert (GOLDEN / name / filename).is_file(), filename

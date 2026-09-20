@@ -1,7 +1,7 @@
 # tb-macro-summer4
 
 TB natural-history model from [`monash-emu/tb_macroeconomics`](https://github.com/monash-emu/tb_macroeconomics),
-reimplemented on [summer4](https://github.com/monash-emu/summer4) `v0.2.0a1`.
+reimplemented on [summer4](https://github.com/monash-emu/summer4) `v0.2.0a3`.
 
 Numerical parity against summer3wip goldens is the definition of correct. The
 model is the three-age (`0`, `5`, `15`) specification in
@@ -26,7 +26,7 @@ posterior for `contact_rate` covers 0.25.
 
 ## Workarounds for the summer4 handoff
 
-These are the gaps the port papers over at tag `v0.2.0a1`. `grep -n GLUE src`
+These are the gaps the port papers over at tag `v0.2.0a3`. `grep -n GLUE src`
 finds the ones a later package deletes.
 
 - **TM3** — ageing is a hand-written `TraitChain` with rates `1/5` and `1/10`.

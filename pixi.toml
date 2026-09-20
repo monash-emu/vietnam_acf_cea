@@ -12,7 +12,7 @@ pytest = "*"
 black = "*"
 
 [pypi-dependencies]
-summer4 = { git = "https://github.com/monash-emu/summer4.git", tag = "v0.2.0a1", extras = ["jax", "calibration", "pandas", "frames"] }
+summer4 = { git = "https://github.com/monash-emu/summer4.git", tag = "v0.2.0a3", extras = ["jax", "calibration", "pandas", "frames"] }
 arviz = "*"
 plotly = ">=6.6, <7"
 ipywidgets = "*"
