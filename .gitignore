@@ -3,6 +3,8 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 .pytest_cache/
+# Calibration draws from notebooks/05-Calibration.ipynb
+outputs/
 *.egg-info/
 dist/
 build/

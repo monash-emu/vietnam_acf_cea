@@ -8,8 +8,11 @@ branch `tweak_cases_calib` (`9cc8cf8`), reimplemented on
 Numerical parity against that branch is the definition of correct. This is not
 the three-age model in `plans/tb-macro-summer4-port.plan.md`. Forward runs are
 `base`, `nuts_start`, and `acf`. `tb_macro.calibration` is the likelihood from
-the summer3 calibration notebook, and `reference/bench_mixing_nuts.py` compares
-mixing-matrix variants under a short NUTS run of that likelihood.
+the summer3 calibration notebook. `notebooks/05-Calibration.ipynb` samples it
+with that notebook's priors: 100 warmup and 100 samples on 4 chains, folded
+spline contact matrix. `notebooks/06-Optimisation.ipynb` maximises the same
+likelihood with Adam, on the same bounds. `reference/bench_mixing_nuts.py` is
+the sampler as a script.
 
 ```bash
 pixi install

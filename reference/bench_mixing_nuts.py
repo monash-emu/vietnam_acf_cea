@@ -1,16 +1,17 @@
-"""NUTS comparison of the mixing-matrix variants.
+"""NUTS run of the calibration likelihood on a mixing-matrix variant.
 
 The density is the summer4 port of the likelihood in the summer3 calibration
 notebook. Every case samples the notebook's prior, including all three mixing
 scalars. Nothing is fixed when the contact matrix is prepared.
 
-The default run is 4 chains, 100 warmup and 100 samples, tree depth 4. Chains
+The default is the folded spline: one curve per draw, evaluated inside the
+solve. The run is 4 chains, 100 warmup and 100 samples, tree depth 4. Chains
 use NumPyro's ``parallel`` method. That method silently becomes ``sequential``
 when JAX sees fewer CPU devices than chains, so this script sets
 ``--xla_force_host_platform_device_count`` before JAX is imported and refuses
-to sample if the fallback still happens. The parallel run crashes in the
-diffrax adjoint; see ``plans/parallel-nuts.md``. Do not start the default
-100-step run until that is fixed.
+to sample if the fallback still happens. Parallel chains need JAX 0.7.2: from
+0.8, ``pmap`` is ``jit(shard_map)`` and the diffrax adjoint crashes. See
+``plans/parallel-nuts.md``.
 
     pixi run python reference/bench_mixing_nuts.py --probe-only
     pixi run python reference/bench_mixing_nuts.py
@@ -196,7 +197,7 @@ def _run_nuts(
         num_samples=samples,
         num_chains=chains,
         chain_method="parallel",
-        progress_bar=False,
+        progress_bar=True,
     )
     if chains > 1 and mcmc.chain_method != "parallel":
         raise RuntimeError(
@@ -210,14 +211,17 @@ def _run_nuts(
         f"devices {jax.local_device_count()}",
         flush=True,
     )
+    # ``MCMC.run`` returns once the parallel map is dispatched. Reading the
+    # draws is what waits for the chains. Time through that read.
     started = time.perf_counter()
     mcmc.run(
         PRNGKey(2),
         extra_fields=("accept_prob", "diverging", "num_steps", "adapt_state.step_size"),
     )
-    elapsed = time.perf_counter() - started
     extra = mcmc.get_extra_fields()
     draws = mcmc.get_samples(group_by_chain=False)
+    jax.block_until_ready(draws)
+    elapsed = time.perf_counter() - started
     mixing = {name: np.asarray(draws[name]) for name in _DIFFERENCED}
     return {
         "elapsed": elapsed,
@@ -280,14 +284,17 @@ def _print_nuts(case: str, nuts: dict[str, Any]) -> None:
 
 
 def main() -> None:
-    """Probe every variant, then run a short chain unless ``--probe-only``."""
+    """Probe the requested variants, then sample unless ``--probe-only``.
+
+    The default variant is the folded spline.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--probe-only", action="store_true")
     parser.add_argument("--warmup", type=int, default=100)
     parser.add_argument("--samples", type=int, default=100)
     parser.add_argument("--chains", type=int, default=4)
     parser.add_argument("--depth", type=int, default=4)
-    parser.add_argument("--variants", nargs="*", default=None)
+    parser.add_argument("--variants", nargs="*", default=["spline"])
     args = parser.parse_args()
 
     if args.chains < 1:
