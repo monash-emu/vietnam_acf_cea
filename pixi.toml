@@ -13,6 +13,11 @@ pytest = "*"
 black = "*"
 
 [pypi-dependencies]
+# JAX 0.8+ implements pmap as jit(shard_map), which crashes Diffrax's default
+# RecursiveCheckpointAdjoint. 0.7.2 is the newest release where parallel NUTS
+# chains work without a flag, and the fastest of the releases that do.
+jax = "==0.7.2"
+jaxlib = "==0.7.2"
 summer4 = { git = "https://github.com/monash-emu/summer4.git", tag = "v0.2.0a3", extras = ["jax", "calibration", "pandas", "frames"] }
 arviz = "*"
 plotly = ">=6.6, <7"
