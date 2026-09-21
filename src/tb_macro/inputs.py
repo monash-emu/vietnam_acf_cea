@@ -172,13 +172,16 @@ def load_conmat(
     """Load the conmat data produced by the R script
     and check that age bands match with the modelled ones.
 
+    The matrices are ``data/mixing/conmat_all_{iso3}.csv``. The summer3 package
+    kept them inside the source tree; this repository does not.
+
     Args:
         iso3: The country identifier
 
     Returns:
         Raw conmat data
     """
-    conmat_dir = BASE_PATH / "src/tb_macro/tb_macro/conmat/"
+    conmat_dir = DATA_PATH / "mixing"
     conmat_data = pd.read_csv(conmat_dir / f"conmat_all_{iso3}.csv", index_col=0)
     conmat_agebreaks = [lower_conmat(a) for a in conmat_data["age_group_from"].unique()]
     assert set(AGE_STRATA) == set(conmat_agebreaks), "model age bands do not match conmat"
