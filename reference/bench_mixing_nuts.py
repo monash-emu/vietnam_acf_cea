@@ -1,25 +1,56 @@
-"""Short NUTS comparison of the mixing-matrix variants.
+"""NUTS comparison of the mixing-matrix variants.
 
 The density is the summer4 port of the likelihood in the summer3 calibration
 notebook. Every case samples the notebook's prior, including all three mixing
 scalars. Nothing is fixed when the contact matrix is prepared.
 
-The notebook runs 40 warmup and 40 samples on 4 chains at tree depth 5. This
-cuts that down so the four variants can be compared: the question is whether
-the chain moves and whether the gradient is usable, not what the posterior is.
+The default run is 4 chains, 100 warmup and 100 samples, tree depth 4. Chains
+use NumPyro's ``parallel`` method. That method silently becomes ``sequential``
+when JAX sees fewer CPU devices than chains, so this script sets
+``--xla_force_host_platform_device_count`` before JAX is imported and refuses
+to sample if the fallback still happens. The parallel run crashes in the
+diffrax adjoint; see ``plans/parallel-nuts.md``. Do not start the default
+100-step run until that is fixed.
 
     pixi run python reference/bench_mixing_nuts.py --probe-only
-    pixi run python reference/bench_mixing_nuts.py --warmup 3 --samples 3
+    pixi run python reference/bench_mixing_nuts.py
 """
 
 from __future__ import annotations
 
 import argparse
+import os
+import sys
+
+
+def _requested_chains(argv: list[str]) -> int:
+    """Read ``--chains`` before JAX is imported. The default is 4."""
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--chains", type=int, default=4)
+    known, _ = parser.parse_known_args(argv)
+    return known.chains
+
+
+def _enable_parallel_chains(n_chains: int) -> None:
+    """One CPU device per chain, before JAX reads ``XLA_FLAGS``."""
+    if n_chains <= 1:
+        return
+    current = os.environ.get("XLA_FLAGS", "").split()
+    kept = [
+        flag for flag in current if not flag.startswith("--xla_force_host_platform_device_count=")
+    ]
+    os.environ["XLA_FLAGS"] = " ".join(
+        [f"--xla_force_host_platform_device_count={n_chains}", *kept]
+    )
+
+
+_enable_parallel_chains(_requested_chains(sys.argv[1:]))
+
 import gc
 import time
 from typing import Any
 
-import jax
+import jax  # noqa: E402
 import numpy as np
 from jax import numpy as jnp
 from jax.random import PRNGKey
@@ -143,8 +174,9 @@ def _run_nuts(
     warmup: int,
     samples: int,
     depth: int,
+    chains: int,
 ) -> dict[str, Any]:
-    """One chain from the notebook's initial point. ``PRNGKey(2)`` matches it."""
+    """Chains from the notebook's initial point. ``PRNGKey(2)`` matches it."""
     priors = {name: dist.Uniform(low, high) for name, (low, high) in PARAM_BOUNDS.items()}
 
     def model() -> None:
@@ -162,8 +194,21 @@ def _run_nuts(
         kernel,
         num_warmup=warmup,
         num_samples=samples,
-        num_chains=1,
+        num_chains=chains,
+        chain_method="parallel",
         progress_bar=False,
+    )
+    if chains > 1 and mcmc.chain_method != "parallel":
+        raise RuntimeError(
+            f"Refusing to run {chains} chains with chain_method={mcmc.chain_method!r} "
+            f"on {jax.local_device_count()} devices. NumPyro draws chains sequentially "
+            "when there are fewer devices than chains. Set "
+            "XLA_FLAGS=--xla_force_host_platform_device_count=N before importing JAX."
+        )
+    print(
+        f"  nuts chain_method {mcmc.chain_method}  chains {chains}  "
+        f"devices {jax.local_device_count()}",
+        flush=True,
     )
     started = time.perf_counter()
     mcmc.run(
@@ -238,12 +283,19 @@ def main() -> None:
     """Probe every variant, then run a short chain unless ``--probe-only``."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--probe-only", action="store_true")
-    parser.add_argument("--warmup", type=int, default=3)
-    parser.add_argument("--samples", type=int, default=3)
+    parser.add_argument("--warmup", type=int, default=100)
+    parser.add_argument("--samples", type=int, default=100)
+    parser.add_argument("--chains", type=int, default=4)
     parser.add_argument("--depth", type=int, default=4)
     parser.add_argument("--variants", nargs="*", default=None)
     args = parser.parse_args()
 
+    if args.chains < 1:
+        raise ValueError("--chains must be at least 1")
+    print(
+        f"devices {jax.local_device_count()}  chains {args.chains}",
+        flush=True,
+    )
     names = tuple(PARAM_BOUNDS)
     theta = _theta(get_nuts_init_values(), names)
     started = time.perf_counter()
@@ -267,7 +319,13 @@ def main() -> None:
             if not row["ok"] or not finite:
                 print("  skipping NUTS: likelihood or gradient is not finite", flush=True)
         else:
-            nuts = _run_nuts(evaluate, warmup=args.warmup, samples=args.samples, depth=args.depth)
+            nuts = _run_nuts(
+                evaluate,
+                warmup=args.warmup,
+                samples=args.samples,
+                depth=args.depth,
+                chains=args.chains,
+            )
             _print_nuts(case.name, nuts)
         del compiled, evaluate, row
         jax.clear_caches()
