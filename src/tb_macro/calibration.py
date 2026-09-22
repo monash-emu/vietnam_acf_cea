@@ -401,13 +401,11 @@ MCMC_EXTRA_FIELDS: tuple[str, ...] = (
 
 
 def inference_data_from_mcmc(mcmc: MCMC) -> InferenceData:
-    """Convert a finished NumPyro MCMC run to ArviZ InferenceData.
+    """Convert a finished NumPyro MCMC run to ArviZ.
 
-    ``sample_stats.lp`` is the joint log posterior of each draw (higher is better).
-    Collect ``MCMC_EXTRA_FIELDS`` when calling ``mcmc.run``.
+    ArviZ 1.x returns an xarray ``DataTree``. ``sample_stats.lp`` is already the
+    joint log posterior (``-potential_energy``, higher better). Do not assign
+    ``lp`` with the old ``InferenceData`` tuple syntax — on a ``DataTree`` that
+    stores an object scalar and ``to_netcdf`` fails.
     """
-    extras = mcmc.get_extra_fields(group_by_chain=True)
-    idata = az.from_numpyro(mcmc, log_likelihood=False)
-    lp = -np.asarray(extras["potential_energy"])
-    idata.sample_stats["lp"] = (("chain", "draw"), lp)
-    return idata
+    return az.from_numpyro(mcmc, log_likelihood=False)

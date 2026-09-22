@@ -200,9 +200,15 @@ def is_age_stratified_output(output: pd.DataFrame) -> bool:
     return len(output.columns) == len(age_labels) and set(map(str, output.columns)) == age_labels
 
 
+def _posterior_dataset(idata: InferenceData) -> Any:
+    """Posterior as an xarray Dataset (ArviZ 1.x ``DataTree`` or legacy idata)."""
+    posterior = idata.posterior
+    return posterior.dataset if hasattr(posterior, "dataset") else posterior
+
+
 def get_posterior_samples(idata: InferenceData, n_samples: int) -> Any:
     """Draw ``n_samples`` posterior points without replacement (seed 0)."""
-    posterior = idata.posterior.stack(sample=("chain", "draw"))
+    posterior = _posterior_dataset(idata).stack(sample=("chain", "draw"))
     n_available = int(posterior.sizes["sample"])
     n_take = min(n_samples, n_available)
     rng = np.random.default_rng(0)
@@ -255,7 +261,10 @@ def rerun_model_for_outputs(
     for i in range(int(samples.sizes["sample"])):
         label = f"chain_{int(samples['chain'][i])}/draw_{int(samples['draw'][i])}"
         sample_labels.append(label)
-        drawn = {name: float(samples[name].isel(sample=i)) for name in idata.posterior.data_vars}
+        drawn = {
+            name: float(samples[name].isel(sample=i))
+            for name in _posterior_dataset(idata).data_vars
+        }
         for scenario_index, scenario in enumerate(scen_params):
             params = dict(BASE_PARAMS)
             params.update(drawn)

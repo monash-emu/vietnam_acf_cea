@@ -138,7 +138,7 @@ def main(task: str, n_runs: int) -> None:
     mcmc.run(PRNGKey(2), extra_fields=MCMC_EXTRA_FIELDS)
     idata = inference_data_from_mcmc(mcmc)
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%MZ")
-    idata.to_netcdf(path / f"{timestamp}.nc")
+    idata.to_netcdf(path / f"{timestamp}.nc", engine="h5netcdf")
 
     # Free NUTS XLAs before the scenario reruns.
     del mcmc, kernel, evaluate, model
