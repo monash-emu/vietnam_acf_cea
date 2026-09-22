@@ -18,7 +18,7 @@ black = "*"
 # chains work without a flag, and the fastest of the releases that do.
 jax = "==0.7.2"
 jaxlib = "==0.7.2"
-summer4 = { git = "https://github.com/monash-emu/summer4.git", tag = "v0.2.0a3", extras = ["jax", "calibration", "pandas", "frames"] }
+summer4 = { git = "https://github.com/monash-emu/summer4.git", tag = "v0.2.0a4", extras = ["calibration", "pandas", "frames"] }
 arviz = "*"
 h5netcdf = "*"
 h5py = "*"
@@ -31,8 +31,8 @@ tb_macro = { path = ".", editable = true }
 [tasks]
 test = "pytest -q -m 'not slow'"
 test-slow = "pytest -q -m slow"
-format = "black src tests reference/make_golden.py"
-format-check = "black --check src tests reference/make_golden.py"
+format = "black src tests reference/make_golden.py reference/make_calibration_golden.py reference/calibration_golden.py"
+format-check = "black --check src tests reference/make_golden.py reference/make_calibration_golden.py reference/calibration_golden.py"
 notebook = "jupyter lab notebooks"
 install-kernel = "python -m ipykernel install --sys-prefix --name tb-macro-summer4 --display-name 'tb-macro-summer4 (pixi)'"
 
@@ -40,7 +40,7 @@ install-kernel = "python -m ipykernel install --sys-prefix --name tb-macro-summe
 platforms = ["osx-arm64", "linux-64"]
 dependencies = { python = "3.13.*", pandas = "*", pyarrow = "*" }
 pypi-dependencies = { summer3 = { git = "https://github.com/monash-emu/summer3wip.git", rev = "15ad51b44f3c4de687aa33e8e9c6213d3e228e30" }, jax = "==0.9.1", jaxlib = "==0.9.1", diffrax = ">=0.7.2, <0.8", numpyro = ">=0.20, <0.21", arviz = "==0.23.4" }
-tasks = { golden = "python reference/make_golden.py" }
+tasks = { golden = "python reference/make_golden.py && python reference/make_calibration_golden.py", golden-calibration = "python reference/make_calibration_golden.py" }
 
 [environments]
 default = { solve-group = "default" }

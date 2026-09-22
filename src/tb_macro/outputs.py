@@ -11,8 +11,8 @@ from tb_macro.model import PMAP, get_compiled
 from tb_macro.parameters import BASE_PARAMS
 
 
-def _data(trace: Any) -> Any:
-    values = trace.values
+def _data(output: Any) -> Any:
+    values = output.values
     return values.data if hasattr(values, "data") else values
 
 

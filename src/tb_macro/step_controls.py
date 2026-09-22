@@ -1,9 +1,10 @@
 """Pass diffrax step controls through summer4's solver.
 
-summer4 v0.2.0a2 builds ``PIDController`` from ``rtol`` and ``atol`` only.
-``install`` replaces that call so ``CompiledModel.run`` accepts the rest of the
-controller, and a ready-made ``stepsize_controller``. Importing ``tb_macro``
-installs it. The golden ``run()`` does not pass the new arguments.
+summer4 ``CompiledModel.run`` still builds ``PIDController`` from ``rtol`` and
+``atol`` only (through ``v0.2.0a4``). ``install`` replaces that call so
+``CompiledModel.run`` accepts the rest of the controller, and a ready-made
+``stepsize_controller``. Importing ``tb_macro`` installs it. The golden
+``run()`` does not pass the new arguments.
 """
 
 from __future__ import annotations

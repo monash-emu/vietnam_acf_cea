@@ -12,6 +12,9 @@ summer4 cannot set ``dtmax``. The original notebook uses the runner default
 ``rtol=atol=1e-5`` and ``dtmax=1``. These goldens tighten that to ``1e-9`` and
 ``max_steps=20_000`` so reference error sits under the parity tolerance, the
 same reason the three-age port did. Do not edit the parquet to fit summer4.
+
+Calibration log-density goldens are written by ``reference/make_calibration_golden.py``
+(also run from ``pixi run -e reference golden``).
 """
 
 from __future__ import annotations

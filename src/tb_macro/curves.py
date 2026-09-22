@@ -1,8 +1,10 @@
 """Calendar curves copied from ``tweak_cases_calib`` ``utils.py``.
 
-# GLUE(TM4): replaced by WP13 — triangular seed and cosine scale-up as rate
-# trees once abs / clip / cos nodes exist. ``jnp.clip(..., a_min=)`` is
-# ``jnp.maximum`` here; JAX 0.11 dropped the keyword. The values match.
+The triangular seed is a rate tree in ``model._seed_peak_rate`` (``clip`` /
+``abs``). Detection and the WHO outcome curves still call
+:func:`get_cos_multicurve` via ``defer`` — there is no piecewise half-cosine
+rate node. ``jnp.maximum(..., 0)`` replaces ``jnp.clip(..., a_min=)``; JAX 0.11
+dropped the keyword.
 """
 
 from __future__ import annotations

@@ -54,7 +54,7 @@ def test_release_repairs_the_three_bugs() -> None:
 
 
 def test_summer4_import_and_goldens_present() -> None:
-    assert version("summer4") == "0.2.0a3"
+    assert version("summer4") == "0.2.0a4"
     for name in fixtures():
         for filename in (
             "compartments.parquet",

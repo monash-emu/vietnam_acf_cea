@@ -139,7 +139,7 @@ def _interp(values: Any, query_times: Any) -> Any:
     return jnp.interp(jnp.asarray(query_times, dtype=series.dtype), years, series)
 
 
-def _trace_data(result: Any, name: str) -> Any:
+def _output_data(result: Any, name: str) -> Any:
     values = result[name].values
     return values.data if hasattr(values, "data") else values
 
@@ -149,7 +149,7 @@ def _sum_rows(compartments: Any, rows: Any) -> Any:
 
 
 def _flow_total(result: Any, name: str) -> Any:
-    return jnp.sum(_trace_data(result, name), axis=-1)
+    return jnp.sum(_output_data(result, name), axis=-1)
 
 
 def _adult_pulmonary(compartments: Any, time: Any) -> tuple[Any, Any, Any]:
@@ -276,7 +276,7 @@ def make_log_likelihood(
         if fold is not None:
             prepared.update(fold(prepared))
         result = compiled.run(prepared, **settings)
-        compartments = _trace_data(result, "compartments")
+        compartments = _output_data(result, "compartments")
         if mixing is None:
             matrix = _baseline_matrix(prepared)
         else:

@@ -3,7 +3,7 @@
 The Vietnam tuberculosis model from
 [`monash-emu/tb_macroeconomics`](https://github.com/monash-emu/tb_macroeconomics)
 branch `tweak_cases_calib` (`9cc8cf8`), reimplemented on
-[summer4](https://github.com/monash-emu/summer4) `v0.2.0a3`.
+[summer4](https://github.com/monash-emu/summer4) `v0.2.0a4`.
 
 Numerical parity against that branch is the definition of correct. This is not
 the three-age model in `plans/tb-macro-summer4-port.plan.md`. Forward runs are
@@ -25,6 +25,11 @@ Regenerate goldens only in the reference environment, which pins summer3wip
 ```bash
 pixi run -e reference golden
 ```
+
+That writes forward-run parity under `tests/golden/{base,nuts_start,acf}/` and
+calibration log-density parity under `tests/golden/calibration/` (eight draws:
+`base`, `nuts_start`, and six uniform samples inside `PARAM_BOUNDS`, seed
+`20240922`).
 
 `notebooks/01-InspectRun.ipynb` is the user gate: the default run against the
 `base` golden, with the disease-state plot. `notebooks/02-ReleaseModel.ipynb`
@@ -48,16 +53,16 @@ notebooks: it does not install summer4.
 
 `grep -n GLUE src` finds the stand-ins a later summer4 package can delete.
 
-- **TM3** — ageing is one hand-written `TraitChain`, rate `1/width` on each of
-  the seven steps `0→3→5→10→15→18→40→65`.
-- **TM4** — the triangular seed and the cosine detection scale-up are
-  `Transform`s of the copied functions. Solver `t` is the summer3 index;
-  calendar year is `t + 1800`.
-- **TM5 / KI6** — force of infection, the spectrally normalised mixing matrix,
-  per-age death rates, treatment hazards and the ACF rate are one `derived_fn`.
-  `ForceOfInfection` cannot express infectiousness on two properties, the
-  under-15 transmission mask, or a matrix rebuilt every step.
-- **KI10** — death rates are eight `jnp.interp` calls. `Interp` is scalar-only.
+- **KI6** — the spectrally normalised contact matrix is still rebuilt inside
+  `derived_fn` (or supplied by a calibration `mixing` callback). Folded
+  stepwise / spline cases already pass a table; the baseline path does not.
+- **Treatment / ACF / entry** — competing treatment hazards, the ACF screen
+  rate, and absolute entry births remain `FieldRef`s filled by `derived_fn`.
+- **Detection** — piecewise half-cosine scale-up is `defer(get_cos_multicurve)`
+  (no half-cosine rate node). The triangular seed is a native `clip` / `abs`
+  rate tree; ageing is `TraitChain.from_breakpoints`; infection is
+  `ForceOfInfection` with selector-keyed infectiousness; nontb deaths use
+  `Data.table(...).interp`.
 - **Entry births** can be negative. `EntryFlow` applies the value as an
   absolute inflow, which is what summer3 does.
 - **Progression** keeps summer3's 1/2 scatter, then multiplies by
@@ -65,5 +70,6 @@ notebooks: it does not install summer4.
 - **Solver.** Goldens use Dopri5, initial step `0.1`, `rtol=atol=1e-9`,
   `max_steps=20_000`, and no `dtmax`. The tb_macroeconomics notebooks pass only
   `max_steps=4000` and inherit the summer3 runner: `rtol=atol=1e-5`, `dtmax=1`.
-  `CompiledModel.run` accepts those controls. `run()` does not pass them.
+  `tb_macro.step_controls` patches `CompiledModel.run` so those controls work.
+  `run()` does not pass them.
 - **Float64.** Enabled in `tb_macro/__init__.py`. summer3 turns it on at import.

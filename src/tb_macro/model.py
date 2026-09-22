@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 from jax import numpy as jnp
 
 from summer4 import (
@@ -29,9 +30,12 @@ from summer4 import (
     SaveRequest,
     Time,
     TraitChain,
-    Transform,
     TransitionFlow,
+    clip,
+    defer,
 )
+from summer4.data import Data
+from summer4.epi import FOIKind, ForceOfInfection, MixingMatrix
 from tb_macro.constants import (
     ACF_MIN_AGE,
     AGE_STRATA,
@@ -46,7 +50,7 @@ from tb_macro.constants import (
     START_TIME,
     YOUNG_END_AGE,
 )
-from tb_macro.curves import get_cos_multicurve, get_scale_data, get_triang_vals
+from tb_macro.curves import get_cos_multicurve, get_scale_data
 from tb_macro.demography import birth_rate_at
 from tb_macro.mixing import get_norm_c_matrix
 from tb_macro.static_data import StaticInputs, load_static
@@ -74,6 +78,16 @@ _INDEX_BUG_FLOWS: tuple[str, ...] = tuple(f"nontb_deaths_{age}" for age in AGES)
 _AGE_BREAKS = jnp.array(AGE_STRATA, dtype=jnp.float64)
 # Loaded at import, never inside ``derived_fn``. A lazy load under jit leaks tracers.
 STATIC: StaticInputs = load_static()
+_DEATH_RATE = Data.table(
+    np.asarray(STATIC.death_times, dtype=np.float64),
+    np.asarray(STATIC.death_rates, dtype=np.float64),
+    over=AGE,
+)
+
+
+def _calendar() -> Any:
+    """Solver index ``Time()`` plus the calendar origin."""
+    return Time() + START_TIME
 
 
 def _age_selector(ages: list[int]) -> Any:
@@ -101,11 +115,12 @@ def _outcome_rates(dur: Any, prop_neg: Any, tsr: Any, death_rate: Any) -> tuple[
 
 
 def _interp_deaths(calendar: Any, times: Any, rates: Any) -> Any:
-    # GLUE(KI10): replaced by WP13 — Interp is scalar-only, so each age is
-    # its own jnp.interp. Eight ages, unrolled. Folding the eight into one
-    # searchsorted was measured and is not faster: XLA already shares the
-    # search between them, and the strided row gather it needs costs more
-    # than the eight contiguous column gathers. See plans/mixing-spline.md.
+    """Per-age death hazards for treatment outcome coupling.
+
+    Nontb death *flows* use ``Data.table(...).interp`` (``_DEATH_RATE``). Treatment
+    success / relapse / rx_death still need the same vector inside ``derived_fn``
+    because they combine it with TSR and unsuccessful-outcome curves.
+    """
     cols = [
         jnp.interp(
             calendar,
@@ -145,36 +160,19 @@ def force_of_infection(
     *,
     y: Any,
     t: Any,
-    release: bool = False,
     mixing: Any = None,
 ) -> dict[str, Any]:
-    """Per-step mixing matrix, FOI, death rates, treatment hazards, ACF.
+    """Per-step mixing matrix, death rates, treatment hazards, ACF.
 
-    # GLUE(TM5): replaced by WP14. Infectiousness is two properties, under-15s
-    # do not transmit, and the contact matrix is rebuilt every step
-    # (spectral radius included). ``ForceOfInfection`` cannot say that.
+    Infection pressure itself is ``ForceOfInfection`` on the flow graph.
     # GLUE(KI6): the matrix is ``get_norm_c_matrix`` from the original file.
     ``mixing(calendar, params)``, when set, replaces that call. ``run`` does not set it.
+    Treatment hazards and ACF stay here: they combine several time series into
+    per-compartment rates that are not yet single rate-tree expressions.
     """
     static = STATIC
     calendar = t + START_TIME
     pop = PropertyData(PMAP, y)
-    # CLIN_STRATA is (clin, subclin). summer3 wraps
-    # [rel_infectiousness_subclin, 1] in that order, so the name does not
-    # match the stratum. The release model puts the weight on subclin.
-    # See reference/summer3-bugs.md.
-    inf_w = jnp.array([params["rel_infectiousness_lowinf"], 1.0])
-    rel_sub = params["rel_infectiousness_subclin"]
-    clin_w = jnp.array([1.0, rel_sub]) if release else jnp.array([rel_sub, 1.0])
-    weighted = (
-        pop.keep(STATE["active"], 0.0)
-        * pop.broadcast_over(INFECTIOUS, inf_w)
-        * pop.broadcast_over(CLINICAL, clin_w)
-    )
-    ipops = weighted.sum_over(AGE).data
-    total = pop.sum_over(AGE).data
-    age_infect = jnp.where(_AGE_BREAKS < YOUNG_END_AGE, 0.0, 1.0)
-    pressure = age_infect * ipops / total
     if mixing is None:
         mixing_matrix = get_norm_c_matrix(
             static.age_weights,
@@ -190,7 +188,6 @@ def force_of_infection(
         )
     else:
         mixing_matrix = mixing(calendar, params)
-    foi = mixing_matrix @ pressure
     deaths = _interp_deaths(calendar, static.death_times, static.death_rates)
     tsr = get_cos_multicurve(calendar, static.tsr_x, static.tsr_y)
     unsucc = get_cos_multicurve(calendar, static.unsucc_x, static.unsucc_y)
@@ -208,24 +205,16 @@ def force_of_infection(
     )
 
     derived = dict(params)
-    derived["foi"] = pop.broadcast_over(AGE, foi)
+    derived["mixing"] = mixing_matrix
     derived["success_rate"] = pop.broadcast_over(AGE, success)
     derived["relapse_rate"] = pop.broadcast_over(AGE, relapse)
     derived["rx_death_rate"] = pop.broadcast_over(AGE, rx_death)
     derived["acf_rate"] = acf
     derived["entry_rate"] = birth_rate_at(t, static.entry_times, static.entry_rates, START_TIME)
-    for index, age in enumerate(AGES):
-        derived[f"death_{age}"] = deaths[index]
     return derived
 
 
-def _triang_rate(prev: Any, calendar: Any, peak_time: Any, peak_height: Any, width: Any) -> Any:
-    del prev
-    return get_triang_vals(calendar, peak_time, peak_height, width)
-
-
 def _detection_rate(
-    prev: Any,
     calendar: Any,
     current: Any,
     rel_2007: Any,
@@ -233,7 +222,6 @@ def _detection_rate(
     rel_2021: Any,
 ) -> Any:
     """Cosine detection scale-up. 1986 is current × rel_2007 × rel_1986."""
-    del prev
     r_2007 = current * rel_2007
     r_1986 = r_2007 * rel_1986
     r_covid = current * rel_2021
@@ -254,16 +242,61 @@ def _latency_adjust(prefix: str) -> tuple[Overwrite, ...]:
     )
 
 
-def _ageing_pairing() -> TraitChain:
-    # GLUE(TM3): replaced by WP13 — TraitChain.from_breakpoints.
-    pairs = tuple((str(AGE_STRATA[i]), str(AGE_STRATA[i + 1])) for i in range(len(AGE_STRATA) - 1))
-    widths = tuple(1.0 / (AGE_STRATA[i + 1] - AGE_STRATA[i]) for i in range(len(AGE_STRATA) - 1))
-    return TraitChain(AGE, pairs, rates=widths)
+def _infectiousness(release: bool) -> list[tuple[Any, Any]]:
+    """Per-compartment infectiousness weights for ``ForceOfInfection``.
+
+    CLIN_STRATA is ``(clin, subclin)``. summer3 wraps
+    ``[rel_infectiousness_subclin, 1]`` in that order, so the name does not
+    match the stratum. The release model puts the weight on subclin.
+    See ``reference/summer3-bugs.md``.
+    """
+    clinical = (
+        (CLINICAL["subclin"], Param("rel_infectiousness_subclin"))
+        if release
+        else (CLINICAL["clin"], Param("rel_infectiousness_subclin"))
+    )
+    return [
+        (INFECTIOUS["low"], Param("rel_infectiousness_lowinf")),
+        clinical,
+        (_YOUNG, 0.0),
+    ]
 
 
-def build_model() -> FlowModel:
-    """Declare the ``tweak_cases_calib`` flows. Names match summer3."""
+def _force_of_infection(release: bool) -> ForceOfInfection:
+    return ForceOfInfection(
+        "foi",
+        infectious=STATE["active"],
+        group_by=AGE,
+        kind=FOIKind.FREQUENCY,
+        contact_rate=1.0,
+        mixing=MixingMatrix(
+            AGE,
+            FieldRef(("mixing",)),
+            normalize="none",
+            check_reciprocal=False,
+        ),
+        infectiousness=_infectiousness(release),
+    )
+
+
+def _seed_peak_rate() -> Any:
+    """Triangular pulse on the calendar axis."""
+    calendar = _calendar()
+    return clip(
+        Param("seed_peak_rate")
+        * (1.0 - abs(calendar - Param("seed_peak_time")) / Param("seed_duration")),
+        0.0,
+    )
+
+
+def build_model(*, release: bool = False) -> FlowModel:
+    """Declare the ``tweak_cases_calib`` flows. Names match summer3.
+
+    ``release`` selects the docstring infectiousness weights; the three summer3
+    destination / progression bugs are applied after ``compile``.
+    """
     model = FlowModel(PMAP)
+    foi = _force_of_infection(release)
     for comp in INFECT_COMPS:
         suscept = "cleared" if comp in ("cleared", "recovered") else comp
         adjust: tuple[Any, ...] = (
@@ -276,7 +309,7 @@ def build_model() -> FlowModel:
                 f"infect_{comp}",
                 STATE[comp],
                 STATE["incipient"],
-                FieldRef(("foi",)),
+                foi,
                 adjust=adjust,
             )
         )
@@ -385,53 +418,39 @@ def build_model() -> FlowModel:
             Everything(),
             Everything(),
             1.0,
-            pairing=_ageing_pairing(),
+            pairing=TraitChain.from_breakpoints(AGE),
         )
     )
-    # GLUE(TM4): calendar seed. Time() is the index.
     model.add_flow(
         TransitionFlow(
             "seed_peak",
             STATE["mtb_naive"],
             STATE["incipient"],
-            0.0,
-            adjust=(
-                Transform(
-                    _triang_rate,
-                    Time() + START_TIME,
-                    Param("seed_peak_time"),
-                    Param("seed_peak_rate"),
-                    Param("seed_duration"),
-                ),
-            ),
+            _seed_peak_rate(),
         )
     )
-    # GLUE(TM4): cosine detection. No second constant detection flow.
     model.add_flow(
         TransitionFlow(
             "detection",
             STATE["active"] & CLINICAL["clin"],
             STATE["treatment"],
-            0.0,
-            adjust=(
-                Transform(
-                    _detection_rate,
-                    Time() + START_TIME,
-                    Param("detect_rate_current"),
-                    Param("rel_detect_2007"),
-                    Param("rel_detect_1986"),
-                    Param("rel_detect_2021"),
-                ),
+            defer(_detection_rate)(
+                _calendar(),
+                Param("detect_rate_current"),
+                Param("rel_detect_2007"),
+                Param("rel_detect_1986"),
+                Param("rel_detect_2021"),
             ),
         )
     )
+    death_rate = _DEATH_RATE.interp(arg=_calendar())
     for age in AGES:
         model.add_flow(
             TransitionFlow(
                 f"nontb_deaths_{age}",
                 AGE[age],
                 STATE["mtb_naive"] & AGE["0"],
-                FieldRef((f"death_{age}",)),
+                death_rate,
             )
         )
     # Absolute inflow. Rates from the UN increment series can be negative;
@@ -479,14 +498,8 @@ def build_model() -> FlowModel:
     return model
 
 
-def _parity_field(params: dict[str, Any], *, y: Any, t: Any) -> dict[str, Any]:
-    """Golden-matching field. Copies the summer3 clinical-weight wrap."""
-    return force_of_infection(params, y=y, t=t, release=False)
-
-
-def _release_field(params: dict[str, Any], *, y: Any, t: Any) -> dict[str, Any]:
-    """Docstring field. ``rel_infectiousness_subclin`` multiplies ``subclin``."""
-    return force_of_infection(params, y=y, t=t, release=True)
+def _derived_field(params: dict[str, Any], *, y: Any, t: Any) -> dict[str, Any]:
+    return force_of_infection(params, y=y, t=t)
 
 
 def _copy_summer3_destination_index(compiled: Any) -> None:
@@ -495,8 +508,6 @@ def _copy_summer3_destination_index(compiled: Any) -> None:
     summer3 stores the right compartment object and the wrong index. The
     runner uses the index. Must run before the vector field is traced.
     """
-    import numpy as np
-
     for name in _INDEX_BUG_FLOWS:
         flow = compiled.flows[name]
         count = int(np.asarray(flow.src_idx).size)
@@ -507,8 +518,6 @@ def _copy_summer3_destination_index(compiled: Any) -> None:
 
 def _use_full_progression_weight(compiled: Any) -> None:
     """Drop the extra ``1/2`` scatter so ``[1 - p, p]`` is the whole split."""
-    import numpy as np
-
     flow = compiled.flows["progression"]
     ones = np.ones(np.asarray(flow.weight).shape, dtype=np.float64)
     ones.flags.writeable = False
@@ -522,8 +531,7 @@ def get_compiled(release: bool = False) -> Any:
     ``release=True`` is the model the docstrings describe.
     """
     if release not in _COMPILED:
-        field = _release_field if release else _parity_field
-        compiled = build_model().compile(derived_fn=field)
+        compiled = build_model(release=release).compile(derived_fn=_derived_field)
         if release:
             _use_full_progression_weight(compiled)
         else:
@@ -536,7 +544,7 @@ def save_plan(compiled: Any) -> SavePlan:
     """Compartments and flows only.
 
     An empty ``SavePlan`` also saves every parameter path. Those paths can
-    share names with flows and would overwrite the flow traces.
+    share names with flows and would overwrite the flow outputs.
     """
     requests = {"compartments": SaveRequest(Compartments())}
     for name in compiled.order:
@@ -545,8 +553,6 @@ def save_plan(compiled: Any) -> SavePlan:
 
 
 def np_save_ts() -> Any:
-    import numpy as np
-
     return np.arange(N_TIMES)
 
 
@@ -560,9 +566,9 @@ def compile_model(*, release: bool = False, mixing: Any = None) -> Any:
     """
 
     def field(params: dict[str, Any], *, y: Any, t: Any) -> dict[str, Any]:
-        return force_of_infection(params, y=y, t=t, release=release, mixing=mixing)
+        return force_of_infection(params, y=y, t=t, mixing=mixing)
 
-    compiled = build_model().compile(derived_fn=field)
+    compiled = build_model(release=release).compile(derived_fn=field)
     if release:
         _use_full_progression_weight(compiled)
     else:

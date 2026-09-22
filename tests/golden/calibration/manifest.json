@@ -1,0 +1,30 @@
+{
+  "draws": [
+    "base",
+    "nuts_start",
+    "draw_00",
+    "draw_01",
+    "draw_02",
+    "draw_03",
+    "draw_04",
+    "draw_05"
+  ],
+  "n_random": 6,
+  "seed": 20240922,
+  "solver": {
+    "atol": 1e-05,
+    "dtmax": 1.0,
+    "max_steps": 4000,
+    "rtol": 1e-05
+  },
+  "terms": [
+    "latent",
+    "notifications",
+    "deaths",
+    "prevalence",
+    "decline",
+    "infectiousness",
+    "mixing",
+    "total"
+  ]
+}
