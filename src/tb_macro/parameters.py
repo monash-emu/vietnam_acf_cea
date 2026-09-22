@@ -1,3 +1,9 @@
+from __future__ import annotations
+
+import json
+
+from tb_macro.constants import REPO_ROOT
+
 BASE_PARAMS = {
     "rel_sus_mtb_naive": 1.0,  # Required, but should remain one by definition
     "rel_infectiousness_subclin": 0.5,
@@ -74,6 +80,30 @@ def get_nuts_init_values(eps: float = 1e-4) -> dict[str, float]:
         pad = eps * (high - low)
         init[name] = min(max(value, low + pad), high - pad)
     return init
+
+
+def load_optimise_init_values(timestamp: str | None = None) -> dict[str, float]:
+    """Fitted point from an ``optimise-*.json`` under ``outputs/local``.
+
+    ``timestamp`` is the UTC stamp in the filename (``YYYYMMDDTHHMMZ``), as
+    written by the optimisation notebook. With no argument, the newest file by
+    that stamp is used. Returns the ``fitted`` dict for ``init_to_value``.
+    """
+    directory = REPO_ROOT / "outputs" / "local"
+    if timestamp is None:
+        paths = sorted(directory.glob("optimise-*.json"))
+        if not paths:
+            raise FileNotFoundError(f"No optimise-*.json under {directory}")
+        path = paths[-1]
+    else:
+        path = directory / f"optimise-{timestamp}.json"
+        if not path.is_file():
+            raise FileNotFoundError(path)
+    fitted = json.loads(path.read_text())["fitted"]
+    missing = set(PARAM_BOUNDS) - set(fitted)
+    if missing:
+        raise KeyError(f"{path.name} fitted keys missing {sorted(missing)}")
+    return {name: float(fitted[name]) for name in PARAM_BOUNDS}
 
 
 PARAM_NAMES = {
