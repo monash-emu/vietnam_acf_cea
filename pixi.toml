@@ -31,8 +31,8 @@ tb_macro = { path = ".", editable = true }
 [tasks]
 test = "pytest -q -m 'not slow'"
 test-slow = "pytest -q -m slow"
-format = "black src tests reference/make_golden.py reference/make_calibration_golden.py reference/calibration_golden.py"
-format-check = "black --check src tests reference/make_golden.py reference/make_calibration_golden.py reference/calibration_golden.py"
+format = "black src tests reference/make_golden.py reference/make_calibration_golden.py reference/calibration_golden.py scripts/massive/calibrate.py"
+format-check = "black --check src tests reference/make_golden.py reference/make_calibration_golden.py reference/calibration_golden.py scripts/massive/calibrate.py"
 notebook = "jupyter lab notebooks"
 install-kernel = "python -m ipykernel install --sys-prefix --name tb-macro-summer4 --display-name 'tb-macro-summer4 (pixi)'"
 

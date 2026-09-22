@@ -53,6 +53,14 @@ PARITY_RTOL: float = 1e-5
 PARITY_ATOL: float = 1e-8
 POP_PER_AGE: float = 1000.0
 
+# Remote / local calibration artefacts. Jobs write under ``OUTPUT_PATH/<task>/``.
+OUTPUT_PATH: Path = REPO_ROOT / "outputs"
+LOCAL_OUTPUT_PATH: Path = OUTPUT_PATH / "local"
+N_CHAINS_REMOTE: int = 8
+N_RUNS_LOCAL: int = 40
+N_OUTPUT_SAMPLES: int = 40
+SCENARIO_PARAMS: list[dict[str, float]] = [{}, {"acf_coverage": 0.8}]
+
 # Flows whose age-summed instantaneous rates are golden columns.
 FLOW_TOTALS: tuple[str, ...] = (
     "progression",

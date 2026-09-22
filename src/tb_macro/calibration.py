@@ -25,10 +25,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
+import arviz as az
 import numpy as np
-from jax import lax, numpy as jnp
-from jax import jit
+from arviz import InferenceData
+from jax import jit, lax
+from jax import numpy as jnp
 from numpyro import distributions as dist
+from numpyro.infer import MCMC
 
 from tb_macro.constants import (
     AGE_STRATA,
@@ -387,3 +390,24 @@ def build_mixing_cases() -> tuple[MixingCase, ...]:
 def compile_case(case: MixingCase, *, release: bool = False) -> Any:
     """Compile one case. ``release=False`` is the model the notebook calibrated."""
     return compile_model(release=release, mixing=case.mixing)
+
+
+MCMC_EXTRA_FIELDS: tuple[str, ...] = (
+    "potential_energy",
+    "energy",
+    "num_steps",
+    "accept_prob",
+)
+
+
+def inference_data_from_mcmc(mcmc: MCMC) -> InferenceData:
+    """Convert a finished NumPyro MCMC run to ArviZ InferenceData.
+
+    ``sample_stats.lp`` is the joint log posterior of each draw (higher is better).
+    Collect ``MCMC_EXTRA_FIELDS`` when calling ``mcmc.run``.
+    """
+    extras = mcmc.get_extra_fields(group_by_chain=True)
+    idata = az.from_numpyro(mcmc, log_likelihood=False)
+    lp = -np.asarray(extras["potential_energy"])
+    idata.sample_stats["lp"] = (("chain", "draw"), lp)
+    return idata

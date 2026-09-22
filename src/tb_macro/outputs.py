@@ -1,14 +1,33 @@
-"""Inspect-notebook indicators, computed the way ``outputs.py`` on the branch does."""
+"""Inspect-notebook indicators, computed the way ``outputs.py`` on the branch does.
+
+Remote calibration also pickles scenario outputs under the summer3 indicator
+names (``pulm_prev``, ``age_pop``, ``treatment``, …) so
+``notebooks/07-InspectMassiveRun.ipynb`` can load them unchanged.
+"""
 
 from __future__ import annotations
 
-from typing import Any
+from pathlib import Path
+from typing import Any, Callable
 
+import numpy as np
+import pandas as pd
+from arviz import InferenceData
 from jax import numpy as jnp
 
-from tb_macro.constants import AGES, DISEASE_STATES, INFECTED_STATES, PREV_STATES
-from tb_macro.model import PMAP, get_compiled
+from tb_macro.calibration import CALIBRATION_SOLVER, MixingCase, build_mixing_cases, compile_case
+from tb_macro.constants import (
+    AGES,
+    AGE_STRATA,
+    DISEASE_STATES,
+    INFECTED_STATES,
+    N_TIMES,
+    PREV_STATES,
+    START_TIME,
+)
+from tb_macro.model import PMAP, get_compiled, solve
 from tb_macro.parameters import BASE_PARAMS
+from tb_macro.utils import add_midyear_points
 
 
 def _data(output: Any) -> Any:
@@ -78,6 +97,11 @@ def age_latent(result: Any) -> dict[str, Any]:
     return _sum_states_by_age(result, INFECTED_STATES)
 
 
+def age_treatment(result: Any) -> dict[str, Any]:
+    """Population in the treatment compartment, by age."""
+    return _sum_states_by_age(result, ("treatment",))
+
+
 def age_pulmonary_prevalence(result: Any) -> dict[str, Any]:
     """High infectious, plus ``prop_lowinf_bactpos`` of low, plus on treatment.
 
@@ -139,3 +163,106 @@ INDICATORS: tuple[tuple[str, Any], ...] = (
     ("deaths", age_deaths),
     ("population", age_population),
 )
+
+# summer3 remote pickle keys (``scripts/massive/calibrate.py`` on tweak_cases_calib).
+REMOTE_INDICATORS: tuple[tuple[str, Callable[[Any], dict[str, Any]]], ...] = (
+    ("incidence", age_incidence),
+    ("prevalence", age_prevalence),
+    ("pulm_prev", age_pulmonary_prevalence),
+    ("latent", age_latent),
+    ("notifications", age_notifications),
+    ("deaths", age_deaths),
+    ("age_pop", age_population),
+    ("treatment", age_treatment),
+)
+
+
+def _annual_years() -> np.ndarray:
+    return np.arange(START_TIME, START_TIME + N_TIMES, dtype=float)
+
+
+def age_dict_to_frame(by_age: dict[str, Any]) -> pd.DataFrame:
+    """Annual age series to a mid-year-augmented DataFrame with summer3 columns."""
+    frame = pd.DataFrame(
+        {age: np.asarray(values) for age, values in by_age.items()},
+        index=_annual_years(),
+    )
+    frame.columns = frame.columns.map(str)
+    out = add_midyear_points(frame)
+    if is_age_stratified_output(out):
+        out.columns.name = "age_group"
+    return out
+
+
+def is_age_stratified_output(output: pd.DataFrame) -> bool:
+    """Whether a single output frame has one column per modelled age group."""
+    age_labels = {str(age) for age in AGE_STRATA}
+    return len(output.columns) == len(age_labels) and set(map(str, output.columns)) == age_labels
+
+
+def get_posterior_samples(idata: InferenceData, n_samples: int) -> Any:
+    """Draw ``n_samples`` posterior points without replacement (seed 0)."""
+    posterior = idata.posterior.stack(sample=("chain", "draw"))
+    n_available = int(posterior.sizes["sample"])
+    n_take = min(n_samples, n_available)
+    rng = np.random.default_rng(0)
+    idxs = rng.choice(n_available, size=n_take, replace=False)
+    return posterior.isel(sample=idxs)
+
+
+def save_sampled_outputs(
+    path: Path,
+    outputs: list[dict[str, list[pd.DataFrame]]],
+    sample_labels: list[str],
+) -> None:
+    """Pickle nested outputs and sample labels from ``rerun_model_for_outputs``."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.to_pickle({"outputs": outputs, "sample_labels": sample_labels}, path)
+
+
+def load_sampled_outputs(
+    path: Path,
+) -> tuple[list[dict[str, list[pd.DataFrame]]], list[str]]:
+    """Load nested outputs and sample labels saved by ``save_sampled_outputs``."""
+    payload = pd.read_pickle(path)
+    return payload["outputs"], payload["sample_labels"]
+
+
+def _spline_case() -> MixingCase:
+    return next(case for case in build_mixing_cases() if case.name == "spline")
+
+
+def rerun_model_for_outputs(
+    idata: InferenceData,
+    scen_params: list[dict[str, float]],
+    samples: Any,
+    *,
+    case: MixingCase | None = None,
+) -> tuple[list[dict[str, list[pd.DataFrame]]], list[str]]:
+    """Re-run the calibrated model on accepted draws for each scenario.
+
+    Uses the folded spline contact matrix (same path as the remote likelihood).
+    Solver output is annual on 1 January; mid-year points are inserted so each
+    indicator sits on a six-month grid.
+    """
+    mixing_case = case if case is not None else _spline_case()
+    compiled = compile_case(mixing_case)
+    sample_labels: list[str] = []
+    outputs: list[dict[str, list[pd.DataFrame]]] = [
+        {name: [] for name, _ in REMOTE_INDICATORS} for _ in scen_params
+    ]
+    for i in range(int(samples.sizes["sample"])):
+        label = f"chain_{int(samples['chain'][i])}/draw_{int(samples['draw'][i])}"
+        sample_labels.append(label)
+        drawn = {name: float(samples[name].isel(sample=i)) for name in idata.posterior.data_vars}
+        for scenario_index, scenario in enumerate(scen_params):
+            params = dict(BASE_PARAMS)
+            params.update(drawn)
+            params.update(scenario)
+            if mixing_case.fold is not None:
+                params.update(mixing_case.fold(params))
+            result = solve(compiled, params, **CALIBRATION_SOLVER)
+            for name, func in REMOTE_INDICATORS:
+                outputs[scenario_index][name].append(age_dict_to_frame(func(result)))
+    return outputs, sample_labels

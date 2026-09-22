@@ -12,7 +12,10 @@ the summer3 calibration notebook. `notebooks/05-Calibration.ipynb` samples it
 with that notebook's priors: 100 warmup and 100 samples on 4 chains, folded
 spline contact matrix. `notebooks/06-Optimisation.ipynb` maximises the same
 likelihood with Adam, on the same bounds. `reference/bench_mixing_nuts.py` is
-the sampler as a script.
+the sampler as a script. `scripts/massive/` is the SLURM entry point for an
+8-chain remote run on massive/M3; it writes ArviZ, sampled scenario outputs,
+and provenance logs under `outputs/<job_id>/` in the same layout as the
+summer3 task on `tweak_cases_calib`.
 
 ```bash
 pixi install
