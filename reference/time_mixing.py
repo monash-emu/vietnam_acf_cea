@@ -136,7 +136,7 @@ def time_case(label: str, mixing: Mixing, fold: Fold, sets: list[dict[str, float
     ``raw`` calls ``compiled.run`` and pays the re-trace. ``jit`` wraps the same
     call so it is traced once, which is the cost a calibration sees.
     """
-    compiled = compile_model(release=True, mixing=mixing)
+    compiled = compile_model(mixing=mixing)
     kwargs = dict(SOLVER, save=save_plan(compiled))
 
     def raw(params: dict[str, float]) -> Any:

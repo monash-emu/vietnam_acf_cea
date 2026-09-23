@@ -9,9 +9,9 @@ Writes the same artefacts as summer3 ``scripts/massive/calibrate.py`` on
   ``outputs/<task>/run.log``
 
 The density is the summer4 folded-spline likelihood (``notebooks/05-Calibration.ipynb``):
-every name in ``PARAM_BOUNDS`` is sampled, ``release=False``, tree depth 5,
-started at ``get_nuts_init_values()``, ``PRNGKey(2)``. Scenario reruns after
-sampling use ``SCENARIO_PARAMS`` (baseline and ACF coverage 0.8).
+every name in ``PARAM_BOUNDS`` is sampled, corrected model (not golden-matching),
+tree depth 5, started at ``get_nuts_init_values()``, ``PRNGKey(2)``. Scenario
+reruns after sampling use ``SCENARIO_PARAMS`` (baseline and ACF coverage 0.8).
 
 Device count is set before ``tb_macro`` (and JAX) is imported so NumPyro keeps
 ``chain_method="parallel"``. JAX is pinned to 0.7.2 for that path. The count

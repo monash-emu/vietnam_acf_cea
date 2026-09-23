@@ -387,9 +387,9 @@ def build_mixing_cases() -> tuple[MixingCase, ...]:
     )
 
 
-def compile_case(case: MixingCase, *, release: bool = False) -> Any:
-    """Compile one case. ``release=False`` is the model the notebook calibrated."""
-    return compile_model(release=release, mixing=case.mixing)
+def compile_case(case: MixingCase, *, match_golden: bool = False) -> Any:
+    """Compile one case. Default is the corrected model; goldens need ``match_golden``."""
+    return compile_model(match_golden=match_golden, mixing=case.mixing)
 
 
 MCMC_EXTRA_FIELDS: tuple[str, ...] = (

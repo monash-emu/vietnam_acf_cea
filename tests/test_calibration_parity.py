@@ -51,7 +51,7 @@ def test_calibration_terms_match_summer3() -> None:
     expected = load_terms().set_index("draw")
     params_by_draw = load_params()
     case = next(item for item in build_mixing_cases() if item.name == "baseline")
-    compiled = compile_case(case)
+    compiled = compile_case(case, match_golden=True)
     evaluate = make_log_likelihood(compiled, mixing=case.mixing, fold=case.fold)
     errors: list[str] = []
     for draw, params in params_by_draw.items():

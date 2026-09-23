@@ -70,7 +70,8 @@ PMAP: PropertyMap = (
 _COMPILED: dict[bool, Any] = {}
 # Flows whose declared destination is one compartment. summer3's
 # many-to-one branch stores parent_indices = arange(n_edges), so edge i
-# lands in compartment i. See reference/summer3-bugs.md.
+# lands in compartment i. ``match_golden`` copies that. See
+# reference/summer3-bugs.md.
 _INDEX_BUG_FLOWS: tuple[str, ...] = tuple(f"nontb_deaths_{age}" for age in AGES) + (
     "tb_mortality",
     "rx_death",
@@ -242,18 +243,18 @@ def _latency_adjust(prefix: str) -> tuple[Overwrite, ...]:
     )
 
 
-def _infectiousness(release: bool) -> list[tuple[Any, Any]]:
+def _infectiousness(*, match_golden: bool) -> list[tuple[Any, Any]]:
     """Per-compartment infectiousness weights for ``ForceOfInfection``.
 
-    CLIN_STRATA is ``(clin, subclin)``. summer3 wraps
-    ``[rel_infectiousness_subclin, 1]`` in that order, so the name does not
-    match the stratum. The release model puts the weight on subclin.
+    CLIN_STRATA is ``(clin, subclin)``. The default puts
+    ``rel_infectiousness_subclin`` on subclinical disease. ``match_golden``
+    copies summer3's wrap, which puts that weight on clinical disease.
     See ``reference/summer3-bugs.md``.
     """
     clinical = (
-        (CLINICAL["subclin"], Param("rel_infectiousness_subclin"))
-        if release
-        else (CLINICAL["clin"], Param("rel_infectiousness_subclin"))
+        (CLINICAL["clin"], Param("rel_infectiousness_subclin"))
+        if match_golden
+        else (CLINICAL["subclin"], Param("rel_infectiousness_subclin"))
     )
     return [
         (INFECTIOUS["low"], Param("rel_infectiousness_lowinf")),
@@ -262,7 +263,7 @@ def _infectiousness(release: bool) -> list[tuple[Any, Any]]:
     ]
 
 
-def _force_of_infection(release: bool) -> ForceOfInfection:
+def _force_of_infection(*, match_golden: bool) -> ForceOfInfection:
     return ForceOfInfection(
         "foi",
         infectious=STATE["active"],
@@ -275,7 +276,7 @@ def _force_of_infection(release: bool) -> ForceOfInfection:
             normalize="none",
             check_reciprocal=False,
         ),
-        infectiousness=_infectiousness(release),
+        infectiousness=_infectiousness(match_golden=match_golden),
     )
 
 
@@ -289,14 +290,15 @@ def _seed_peak_rate() -> Any:
     )
 
 
-def build_model(*, release: bool = False) -> FlowModel:
+def build_model(*, match_golden: bool = False) -> FlowModel:
     """Declare the ``tweak_cases_calib`` flows. Names match summer3.
 
-    ``release`` selects the docstring infectiousness weights; the three summer3
-    destination / progression bugs are applied after ``compile``.
+    Default infectiousness matches the docstrings. ``match_golden`` selects the
+    summer3 clinical wrap; destination and progression patches run after
+    ``compile``.
     """
     model = FlowModel(PMAP)
-    foi = _force_of_infection(release)
+    foi = _force_of_infection(match_golden=match_golden)
     for comp in INFECT_COMPS:
         suscept = "cleared" if comp in ("cleared", "recovered") else comp
         adjust: tuple[Any, ...] = (
@@ -390,9 +392,9 @@ def build_model(*, release: bool = False) -> FlowModel:
             adjust=_latency_adjust("containment_rate"),
         )
     )
-    # summer3 scatters 1/2 onto the two infectious strata, then multiplies by
-    # [1 - p, p]. The static edge weight stays 1/2; the parameter is a dest
-    # adjustment on top, not instead.
+    # Dest adjustments split progressions by infectiousness. Compile scatters
+    # 1/2 onto the two strata; the default path restores weight 1 so
+    # ``[1 - p, p]`` is the whole split. ``match_golden`` keeps the half.
     model.add_flow(
         TransitionFlow(
             "progression",
@@ -524,20 +526,20 @@ def _use_full_progression_weight(compiled: Any) -> None:
     object.__setattr__(flow, "weight", ones)
 
 
-def get_compiled(release: bool = False) -> Any:
+def get_compiled(*, match_golden: bool = False) -> Any:
     """Compile once per mode. ``derived_fn`` is module-level so the jit cache is stable.
 
-    ``release=False`` matches the summer3 golden, bugs included.
-    ``release=True`` is the model the docstrings describe.
+    Default is the docstring model. ``match_golden=True`` copies the three
+    summer3 bugs so trajectories track ``tests/golden/``.
     """
-    if release not in _COMPILED:
-        compiled = build_model(release=release).compile(derived_fn=_derived_field)
-        if release:
-            _use_full_progression_weight(compiled)
-        else:
+    if match_golden not in _COMPILED:
+        compiled = build_model(match_golden=match_golden).compile(derived_fn=_derived_field)
+        if match_golden:
             _copy_summer3_destination_index(compiled)
-        _COMPILED[release] = compiled
-    return _COMPILED[release]
+        else:
+            _use_full_progression_weight(compiled)
+        _COMPILED[match_golden] = compiled
+    return _COMPILED[match_golden]
 
 
 def save_plan(compiled: Any) -> SavePlan:
@@ -556,11 +558,11 @@ def np_save_ts() -> Any:
     return np.arange(N_TIMES)
 
 
-def compile_model(*, release: bool = False, mixing: Any = None) -> Any:
-    """Compile a model that is not stored in the golden cache.
+def compile_model(*, match_golden: bool = False, mixing: Any = None) -> Any:
+    """Compile a model that is not stored in the module cache.
 
     ``mixing(calendar, params)`` replaces ``get_norm_c_matrix`` when it is not
-    ``None``. ``run`` never passes one, so the golden path stays on the
+    ``None``. ``run`` never passes one, so the default path stays on the
     baseline matrix. Arrays on ``params`` are traced inputs: a new table of
     the same shape does not recompile.
     """
@@ -568,11 +570,11 @@ def compile_model(*, release: bool = False, mixing: Any = None) -> Any:
     def field(params: dict[str, Any], *, y: Any, t: Any) -> dict[str, Any]:
         return force_of_infection(params, y=y, t=t, mixing=mixing)
 
-    compiled = build_model(release=release).compile(derived_fn=field)
-    if release:
-        _use_full_progression_weight(compiled)
-    else:
+    compiled = build_model(match_golden=match_golden).compile(derived_fn=field)
+    if match_golden:
         _copy_summer3_destination_index(compiled)
+    else:
+        _use_full_progression_weight(compiled)
     return compiled
 
 
@@ -582,7 +584,7 @@ def solve(compiled: Any, params: dict[str, Any], **solver: Any) -> Any:
     Keyword arguments are forwarded to ``CompiledModel.run``. That includes
     the diffrax controls installed by :mod:`tb_macro.step_controls` (``dtmax``,
     ``dtmin``, the PID coefficients, or a ``stepsize_controller``). Defaults
-    stay on the golden tolerances.
+    stay on the tight tolerances used for forward-run goldens.
     """
     settings: dict[str, Any] = {
         "t0": 0.0,
@@ -598,13 +600,13 @@ def solve(compiled: Any, params: dict[str, Any], **solver: Any) -> Any:
     return compiled.run(params, **settings)
 
 
-def run(params: dict[str, Any], *, release: bool = False, **solver: Any) -> Any:
+def run(params: dict[str, Any], *, match_golden: bool = False, **solver: Any) -> Any:
     """Integrate index time ``0 … 301`` with Dopri5.
 
-    ``release=False`` copies the three summer3 bugs and is what the goldens
-    record. ``release=True`` sends replacement deaths to age 0, lets the
-    progression split sum to one, and applies ``rel_infectiousness_subclin``
-    to subclinical disease.
+    Default sends replacement deaths to age 0, lets the progression split
+    sum to one, and applies ``rel_infectiousness_subclin`` to subclinical
+    disease. ``match_golden=True`` copies the three summer3 bugs so the run
+    tracks ``tests/golden/``.
 
     summer4's ``run`` accepts ``dtmax`` and the other ``PIDController`` knobs
     via :mod:`tb_macro.step_controls`. This function does not pass them: the
@@ -614,7 +616,7 @@ def run(params: dict[str, Any], *, release: bool = False, **solver: Any) -> Any:
     ``PIDController(rtol=1e-5, atol=1e-5, dtmax=1)``. Pass those through
     ``**solver`` to match a notebook, not a golden.
     """
-    return solve(get_compiled(release=release), params, **solver)
+    return solve(get_compiled(match_golden=match_golden), params, **solver)
 
 
 def calendar_years() -> Any:

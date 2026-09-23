@@ -1,4 +1,8 @@
-"""Parity against summer3wip goldens for the Vietnam model."""
+"""Parity against summer3wip goldens for the Vietnam model.
+
+Default ``run`` / ``get_compiled`` is the corrected model. Golden matching
+is opt-in via ``match_golden=True``.
+"""
 
 from __future__ import annotations
 
@@ -28,29 +32,29 @@ def _max_rel(got: np.ndarray, exp: np.ndarray) -> float:
     return float(np.max(np.abs(got - exp) / scale))
 
 
-def test_progression_edge_weights_are_half() -> None:
-    """summer3 scatters 1/2, then multiplies by the infectiousness split."""
-    weight = np.asarray(get_compiled().flows["progression"].weight)
-    assert weight.size > 0
-    np.testing.assert_allclose(weight, 0.5)
-
-
-def test_parity_copies_summer3_destination_index() -> None:
-    """Edge i of a many-to-one flow lands in compartment i, not age 0."""
-    compiled = get_compiled(release=False)
-    for name in ("nontb_deaths_0", "tb_mortality", "rx_death"):
-        dest = np.asarray(compiled.flows[name].dest_idx)
-        np.testing.assert_array_equal(dest, np.arange(dest.size))
-
-
-def test_release_repairs_the_three_bugs() -> None:
+def test_default_repairs_the_three_bugs() -> None:
     """Deaths return to age 0, and progression is not split a second time."""
-    compiled = get_compiled(release=True)
+    compiled = get_compiled()
     for name in ("nontb_deaths_65", "tb_mortality", "rx_death"):
         dest = np.asarray(compiled.flows[name].dest_idx)
         np.testing.assert_array_equal(dest, np.zeros(dest.shape, dtype=np.int32))
     weight = np.asarray(compiled.flows["progression"].weight)
     np.testing.assert_allclose(weight, 1.0)
+
+
+def test_match_golden_copies_summer3_destination_index() -> None:
+    """Edge i of a many-to-one flow lands in compartment i, not age 0."""
+    compiled = get_compiled(match_golden=True)
+    for name in ("nontb_deaths_0", "tb_mortality", "rx_death"):
+        dest = np.asarray(compiled.flows[name].dest_idx)
+        np.testing.assert_array_equal(dest, np.arange(dest.size))
+
+
+def test_match_golden_progression_edge_weights_are_half() -> None:
+    """summer3 scatters 1/2, then multiplies by the infectiousness split."""
+    weight = np.asarray(get_compiled(match_golden=True).flows["progression"].weight)
+    assert weight.size > 0
+    np.testing.assert_allclose(weight, 0.5)
 
 
 def test_summer4_import_and_goldens_present() -> None:
@@ -68,7 +72,7 @@ def test_summer4_import_and_goldens_present() -> None:
 def test_parity() -> None:
     errors: list[str] = []
     for name, params in fixtures().items():
-        result = run(params)
+        result = run(params, match_golden=True)
         folder = GOLDEN / name
         compartments = pd.read_parquet(folder / "compartments.parquet")
         got = compartments_by_label(result)
