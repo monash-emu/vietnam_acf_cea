@@ -1,16 +1,14 @@
 # Summer3 bugs the goldens include
 
 `tweak_cases_calib` at `9cc8cf8`, run on summer3wip `15ad51b`, does not do what its
-docstrings say. The parquet goldens are that run, bugs included. The parity port
-must copy the bugs. A release model must remove them and regenerate goldens; the
-same parameter values will not mean the same epidemic.
+docstrings say. The parquet goldens are that run, bugs included. Parity tests
+copy the bugs with `match_golden=True`. The default model removes them; the same
+parameter values will not mean the same epidemic.
 
 Audited by comparing every actualized edge of the reference model with the
 summer4 model, on the same state. Flow **sums** match. Three behaviours do not
-match the written model. `run(params)` copies all three, which is why it tracks
-the golden. `run(params, release=True)` removes them.
-
-Do not make `release=True` the default on `feat/tweak-cases-parity`.
+match the written model. `run(params, match_golden=True)` copies all three,
+which is why it tracks the golden. `run(params)` (the default) removes them.
 
 ## 1. Many-to-one destinations use `arange`, not the destination
 
@@ -28,8 +26,8 @@ first `n` compartments of the map, in map order. Edge `i` of the flow is
 deposited in compartment `i`, whatever that is.
 
 The declared destination of all three flows below is `(mtb_naive, age 0)`.
-`run(params, release=True)` does that. `run(params)` copies the index bug so
-the golden matches.
+`run(params)` does that. `run(params, match_golden=True)` copies the index bug
+so the golden matches.
 
 Map order, first 16 compartments (the only ones these indices can hit):
 
@@ -73,7 +71,7 @@ The bug shows up once the seed creates other disease states, which is why
 `mtb_naive_0` and the younger ages diverge from the 1830s while `entry_births`
 and the mixing matrix stay exact. Comparing summed flow mass cannot see it.
 
-### Release fix
+### Default fix
 
 Repeat the destination's real index:
 
@@ -83,8 +81,8 @@ out_dest_indices = np.full(len(src), dest_index, dtype=np.int32)
 ```
 
 In this repo that means one `TransitionFlow` into `(mtb_naive, age 0)` per
-flow, which is already written. Delete the parity-only index remap, regenerate
-goldens, and do not expect the old parquet to pass.
+flow, which is already written. The default path leaves those indices alone;
+only `match_golden=True` remaps them.
 
 ## 2. Progression is split twice
 
@@ -99,12 +97,8 @@ the adjustment runs (`reconcile_broadcast`, scatter branch, adjustment
 weights are `0.5 * (1 - p)` and `0.5 * p`: `0.4` and `0.1` at the default,
 total outflow half the named progression rate.
 
-The port already does this (`TransitionFlow` weight `0.5`, then the dest
-`Multiply`). Keep it for parity.
-
-Release: the two destination weights should be `1 - p` and `p` and nothing
-else. That doubles progression at the same parameters. Do not retune by hand
-in the parity commit.
+`match_golden=True` keeps the half scatter. The default restores weight `1` so
+`[1 - p, p]` is the whole split.
 
 ## 3. `rel_infectiousness_subclin` multiplies `clin`
 
@@ -119,11 +113,7 @@ so `clin` gets `rel_infectiousness_subclin` and `subclin` gets `1`. The name
 does not match the stratum. The low/high wrap is in stratum order and is not
 this bug.
 
-The port already copies the wrap. Keep it for parity.
-
-Release: `jnp.array([1.0, rel_infectiousness_subclin])` with the current
-stratum order, or swap the tuple and the array together. Either way
-subclinical must be the stratum that carries the parameter.
+`match_golden=True` copies the wrap. The default puts the weight on `subclin`.
 
 ## Not bugs
 
