@@ -91,25 +91,25 @@ _DEATH_RATE = Data.table(
 
 # Default corrected path: folded spline contact + continuous (C0) entry rate.
 # ``match_golden`` keeps get_norm_c_matrix and the step entry lookup.
+# Built at import — never inside a jax transform. A lazy first touch under
+# ``@jit`` / ``pmap`` would store DynamicJaxprTracers on this object and then
+# fail at pmap lowering with "No constant handler for type: DynamicJaxprTracer".
 _CONTACT_YEARS = np.arange(START_TIME, START_TIME + N_TIMES + 1.0)
-_SPLINE_CONTACT: Any = None
+_SPLINE_CONTACT = prepare_spline(
+    STATIC.age_weights,
+    STATIC.weight_ends,
+    STATIC.pops,
+    STATIC.pop_ends,
+    STATIC.fert,
+    STATIC.fert_ends,
+    years=_CONTACT_YEARS,
+)
 # Patchable by timing harnesses (``reference/time_mixing.py --entry step``).
 entry_rate_at = smooth_birth_rate_at
 
 
 def _spline_contact() -> Any:
-    """One prepare_spline for the solver span. Built once per process."""
-    global _SPLINE_CONTACT
-    if _SPLINE_CONTACT is None:
-        _SPLINE_CONTACT = prepare_spline(
-            STATIC.age_weights,
-            STATIC.weight_ends,
-            STATIC.pops,
-            STATIC.pop_ends,
-            STATIC.fert,
-            STATIC.fert_ends,
-            years=_CONTACT_YEARS,
-        )
+    """Prepared spline for the solver span. Always the import-time instance."""
     return _SPLINE_CONTACT
 
 
@@ -124,8 +124,12 @@ def fold_spline_contact(params: dict[str, Any]) -> dict[str, Any]:
 
 
 def spline_mixing(calendar: Any, params: dict[str, Any]) -> Any:
-    """Normalised contact matrix from a folded curve, or free-in-stage if absent."""
-    curve = params.get("curve")
+    """Normalised contact matrix from a folded curve.
+
+    Calibration and ``run`` always fold first. The free-in-stage fallback is
+    for probes that omit ``curve``; it must not be the NUTS path.
+    """
+    curve = params["curve"] if "curve" in params else None
     if curve is not None:
         return curve.at(calendar)
     return _spline_contact().matrix(

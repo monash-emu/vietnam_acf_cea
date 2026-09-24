@@ -54,6 +54,21 @@ def test_default_uses_spline_contact_and_smooth_entry() -> None:
     assert prepare_run_params(dict(BASE_PARAMS), match_golden=True).get("curve") is None
 
 
+def test_spline_contact_is_concrete_at_import() -> None:
+    """Import-time prepare keeps demographic tables out of jax tracers.
+
+    A lazy first touch under ``@jit`` stored DynamicJaxprTracers on the module
+    contact and then parallel NUTS failed at pmap lowering.
+    """
+    from jax import core
+
+    from tb_macro.model import _SPLINE_CONTACT
+
+    for name in ("offset", "background", "parent", "pop", "lags"):
+        value = getattr(_SPLINE_CONTACT, name)
+        assert not isinstance(value, core.Tracer), name
+
+
 def test_match_golden_copies_summer3_destination_index() -> None:
     """Edge i of a many-to-one flow lands in compartment i, not age 0."""
     compiled = get_compiled(match_golden=True)
