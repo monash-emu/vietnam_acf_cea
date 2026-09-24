@@ -10,8 +10,11 @@ Writes the same artefacts as summer3 ``scripts/massive/calibrate.py`` on
 
 The density is the summer4 folded-spline likelihood (``notebooks/05-Calibration.ipynb``):
 every name in ``PARAM_BOUNDS`` is sampled, corrected model (not golden-matching),
-tree depth 5, started at ``get_nuts_init_values()``, ``PRNGKey(2)``. Scenario
-reruns after sampling use ``SCENARIO_PARAMS`` (baseline and ACF coverage 0.8).
+smooth entry rate, tree depth 5, started at ``get_nuts_init_values()``, ``PRNGKey(2)``.
+Scenario reruns after sampling use ``SCENARIO_PARAMS`` (baseline and ACF coverage 0.8).
+
+``<stamp>.log`` and ``run.log`` record git provenance plus ``mixing``, ``entry``,
+and ``match_golden`` so a finished job can be audited without reading the script.
 
 Device count is set before ``tb_macro`` (and JAX) is imported so NumPyro keeps
 ``chain_method="parallel"``. JAX is pinned to 0.7.2 for that path. The count
@@ -68,6 +71,7 @@ from tb_macro.constants import (  # noqa: E402
     OUTPUT_PATH,
     SCENARIO_PARAMS,
 )
+from tb_macro.demography import smooth_birth_rate_at  # noqa: E402
 from tb_macro.outputs import (  # noqa: E402
     get_posterior_samples,
     rerun_model_for_outputs,
@@ -75,6 +79,12 @@ from tb_macro.outputs import (  # noqa: E402
 )
 from tb_macro.parameters import BASE_PARAMS, PARAM_BOUNDS, get_nuts_init_values  # noqa: E402
 from tb_macro.utils import get_git_provenance, get_logger, write_run_log  # noqa: E402
+
+# Corrected default path: folded spline + smooth entry. Logged into every run.
+_MATCH_GOLDEN = False
+_ENTRY_NAME = "smooth"
+_ENTRY_FN = smooth_birth_rate_at
+_MIXING_NAME = "spline"
 
 if N_CHAINS_REMOTE != _N_CHAINS:
     raise RuntimeError(
@@ -102,10 +112,15 @@ def main(task: str, n_runs: int) -> None:
         n_runs,
     )
 
-    case = next(item for item in build_mixing_cases() if item.name == "spline")
-    compiled = compile_case(case)
+    case = next(item for item in build_mixing_cases() if item.name == _MIXING_NAME)
+    compiled = compile_case(case, match_golden=_MATCH_GOLDEN, entry=_ENTRY_FN)
     evaluate = make_log_likelihood(compiled, mixing=case.mixing, fold=case.fold)
-    logger.info("mixing case %s", case.name)
+    logger.info(
+        "model mixing=%s entry=%s match_golden=%s",
+        case.name,
+        _ENTRY_NAME,
+        _MATCH_GOLDEN,
+    )
 
     priors = {name: dist.Uniform(low, high) for name, (low, high) in PARAM_BOUNDS.items()}
 
@@ -151,6 +166,8 @@ def main(task: str, n_runs: int) -> None:
         SCENARIO_PARAMS,
         samples,
         case=case,
+        match_golden=_MATCH_GOLDEN,
+        entry=_ENTRY_FN,
     )
     save_sampled_outputs(path / f"{timestamp}_outputs.pkl", outputs, sample_labels)
     write_run_log(
@@ -162,6 +179,8 @@ def main(task: str, n_runs: int) -> None:
             "outputs": f"{timestamp}_outputs.pkl",
             "scenario_params": SCENARIO_PARAMS,
             "mixing": case.name,
+            "entry": _ENTRY_NAME,
+            "match_golden": _MATCH_GOLDEN,
         },
     )
     logger.info(

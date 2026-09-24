@@ -245,15 +245,18 @@ def rerun_model_for_outputs(
     samples: Any,
     *,
     case: MixingCase | None = None,
+    match_golden: bool = False,
+    entry: Any | None = None,
 ) -> tuple[list[dict[str, list[pd.DataFrame]]], list[str]]:
     """Re-run the calibrated model on accepted draws for each scenario.
 
-    Uses the folded spline contact matrix (same path as the remote likelihood).
-    Solver output is annual on 1 January; mid-year points are inserted so each
-    indicator sits on a six-month grid.
+    Uses the folded spline contact matrix (same path as the remote likelihood)
+    unless ``case`` / ``match_golden`` / ``entry`` say otherwise. Solver output
+    is annual on 1 January; mid-year points are inserted so each indicator sits
+    on a six-month grid.
     """
     mixing_case = case if case is not None else _spline_case()
-    compiled = compile_case(mixing_case)
+    compiled = compile_case(mixing_case, match_golden=match_golden, entry=entry)
     sample_labels: list[str] = []
     outputs: list[dict[str, list[pd.DataFrame]]] = [
         {name: [] for name, _ in REMOTE_INDICATORS} for _ in scen_params

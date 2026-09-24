@@ -12,13 +12,14 @@ cache misses every time. That constant is identical across the cases and swamps
 what is being compared, so the table also reports the same solve wrapped in one
 outer ``jax.jit``, which is what a calibration does to its log-density.
 
-``--entry smooth`` swaps ``birth_rate_at`` for ``smooth_birth_rate_at``. That is
-a different vector field and is not the golden model; it is here because it is
-the other 1 January discontinuity, and a C1 mixing matrix cannot pay off while
-it is in place. See ``plans/mixing-spline.md``.
+``--entry step`` swaps ``entry_rate_at`` back to the discontinuous
+``birth_rate_at``. The default model uses the smooth (C0) lookup; the step
+field is what ``match_golden`` and the summer3 goldens record. The flag is here
+because mixing comparisons need both entry conventions. See
+``plans/mixing-spline.md``.
 
     pixi run python reference/time_mixing.py
-    pixi run python reference/time_mixing.py --entry smooth
+    pixi run python reference/time_mixing.py --entry step
 """
 
 from __future__ import annotations
@@ -181,10 +182,12 @@ def time_case(label: str, mixing: Mixing, fold: Fold, sets: list[dict[str, float
 def main() -> None:
     """Time every mixing variant on the same draws."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--entry", choices=("step", "smooth"), default="step")
+    parser.add_argument("--entry", choices=("step", "smooth"), default="smooth")
     args = parser.parse_args()
-    if args.entry == "smooth":
-        model.birth_rate_at = demography.smooth_birth_rate_at
+    if args.entry == "step":
+        model.entry_rate_at = demography.birth_rate_at
+    else:
+        model.entry_rate_at = demography.smooth_birth_rate_at
 
     sets = draw_params(N_SETS, SEED)
     print(f"entry rate: {args.entry}; {N_SETS} draws, rtol=atol={SOLVER['rtol']:g}")
@@ -198,7 +201,7 @@ def main() -> None:
         f"prepare, once per process: stepwise {stepwise_prepare:.3f} s, spline {spline_prepare:.3f} s"
     )
 
-    time_case("baseline", None, None, sets)
+    time_case("baseline", model.baseline_mixing, None, sets)
     time_case("stepwise, folded", *stepwise_case(), sets)
     time_case("spline, folded", *spline_case(), sets)
     time_case("spline, free in stage", *spline_free_case(), sets)

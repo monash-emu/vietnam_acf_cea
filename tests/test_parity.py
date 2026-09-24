@@ -42,6 +42,18 @@ def test_default_repairs_the_three_bugs() -> None:
     np.testing.assert_allclose(weight, 1.0)
 
 
+def test_default_uses_spline_contact_and_smooth_entry() -> None:
+    """Corrected path folds a spline curve; entry_rate_at is the C0 lookup."""
+    from tb_macro.demography import smooth_birth_rate_at
+    from tb_macro.model import entry_rate_at, prepare_run_params
+    from tb_macro.parameters import BASE_PARAMS
+
+    assert entry_rate_at is smooth_birth_rate_at
+    prepared = prepare_run_params(dict(BASE_PARAMS))
+    assert "curve" in prepared
+    assert prepare_run_params(dict(BASE_PARAMS), match_golden=True).get("curve") is None
+
+
 def test_match_golden_copies_summer3_destination_index() -> None:
     """Edge i of a many-to-one flow lands in compartment i, not age 0."""
     compiled = get_compiled(match_golden=True)

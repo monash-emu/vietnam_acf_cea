@@ -7,18 +7,19 @@ branch `tweak_cases_calib` (`9cc8cf8`), reimplemented on
 
 The default model is the corrected docstring version: replacement deaths go to
 age 0, progression weights sum to one, and `rel_infectiousness_subclin` applies
-to subclinical disease. Parity against the summer3 goldens (bugs included) is
-opt-in via `match_golden=True`. This is not the three-age model in
-`plans/tb-macro-summer4-port.plan.md`. Forward-run goldens are `base`,
-`nuts_start`, and `acf`. `tb_macro.calibration` is the likelihood from the
-summer3 calibration notebook. `notebooks/05-Calibration.ipynb` samples it with
-that notebook's priors: 100 warmup and 100 samples on 4 chains, folded spline
-contact matrix. `notebooks/06-Optimisation.ipynb` maximises the same likelihood
-with Adam, on the same bounds. `reference/bench_mixing_nuts.py` is the sampler
-as a script. `scripts/massive/` is the SLURM entry point for an 8-chain remote
-run on massive/M3; it writes ArviZ, sampled scenario outputs, and provenance
-logs under `outputs/<job_id>/` in the same layout as the summer3 task on
-`tweak_cases_calib`.
+to subclinical disease. Contact uses the folded spline matrix; entry births use
+the smooth (C0) lookup. Parity against the summer3 goldens (bugs included,
+year-frozen mixing, step entry) is opt-in via `match_golden=True`. This is not
+the three-age model in `plans/tb-macro-summer4-port.plan.md`. Forward-run
+goldens are `base`, `nuts_start`, and `acf`. `tb_macro.calibration` is the
+likelihood from the summer3 calibration notebook. `notebooks/05-Calibration.ipynb`
+samples it with that notebook's priors: 100 warmup and 100 samples on 4 chains,
+folded spline contact matrix. `notebooks/06-Optimisation.ipynb` maximises the
+same likelihood with Adam, on the same bounds. `reference/bench_mixing_nuts.py`
+is the sampler as a script. `scripts/massive/` is the SLURM entry point for an
+8-chain remote run on massive/M3; it writes ArviZ, sampled scenario outputs, and
+provenance logs under `outputs/<job_id>/` in the same layout as the summer3
+task on `tweak_cases_calib`.
 
 ```bash
 pixi install
@@ -59,16 +60,16 @@ notebooks: it does not install summer4.
 
 `grep -n GLUE src` finds the stand-ins a later summer4 package can delete.
 
-- **KI6** — the spectrally normalised contact matrix is still rebuilt inside
-  `derived_fn` (or supplied by a calibration `mixing` callback). Folded
-  stepwise / spline cases already pass a table; the baseline path does not.
 - **Treatment / ACF / entry** — competing treatment hazards, the ACF screen
   rate, and absolute entry births remain `FieldRef`s filled by `derived_fn`.
+  Entry uses `smooth_birth_rate_at` by default; `match_golden=True` keeps the
+  step lookup.
 - **Detection** — piecewise half-cosine scale-up is `defer(get_cos_multicurve)`
   (no half-cosine rate node). The triangular seed is a native `clip` / `abs`
   rate tree; ageing is `TraitChain.from_breakpoints`; infection is
   `ForceOfInfection` with selector-keyed infectiousness; nontb deaths use
-  `Data.table(...).interp`.
+  `Data.table(...).interp`. Contact is the folded spline on the default path
+  (`match_golden` rebuilds `get_norm_c_matrix`).
 - **Entry births** can be negative. `EntryFlow` applies the value as an
   absolute inflow, which is what summer3 does.
 - **Progression** restores weight `1` after compile so

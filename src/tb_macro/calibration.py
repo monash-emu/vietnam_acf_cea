@@ -41,12 +41,20 @@ from tb_macro.constants import (
     START_TIME,
     YOUNG_END_AGE,
 )
-from tb_macro.contact import prepare_smooth, prepare_spline, prepare_stepwise
+from tb_macro.contact import prepare_smooth, prepare_stepwise
 from tb_macro.contact.pchip import eval_jax
 from tb_macro.contact.stepwise import year_index_jax
 from tb_macro.inputs import get_norm_conmat, load_who_outcomes
 from tb_macro.mixing import canberra_distance, get_norm_c_matrix, normalise_by_spectral_radius
-from tb_macro.model import PMAP, STATIC, compile_model, save_plan
+from tb_macro.model import (
+    PMAP,
+    STATIC,
+    baseline_mixing,
+    compile_model,
+    fold_spline_contact,
+    save_plan,
+    spline_mixing,
+)
 from tb_macro.parameters import BASE_PARAMS
 from tb_macro.targets import (
     INF_PREV_TARGET,
@@ -251,16 +259,17 @@ def _baseline_matrix(params: dict[str, Any]) -> Any:
 def make_log_likelihood(
     compiled: Any,
     *,
-    mixing: Mixing | None = None,
-    fold: Fold | None = None,
+    mixing: Mixing | None = spline_mixing,
+    fold: Fold | None = fold_spline_contact,
     solver: dict[str, Any] | None = None,
 ) -> Callable[[dict[str, Any]], dict[str, Any]]:
     """Log-likelihood of one parameter draw, and the seven terms that sum to it.
 
-    ``mixing(calendar, params)`` replaces ``get_norm_c_matrix`` inside the
-    solve and in the Canberra term, so both see the same matrix. ``fold``
-    runs once per draw, before the solve, and its arrays are passed in
-    through ``params``. Leave both as ``None`` for the baseline matrix.
+    ``mixing(calendar, params)`` replaces the solve contact matrix and is used
+    for the Canberra term, so both see the same matrix. ``fold`` runs once per
+    draw, before the solve, and its arrays are passed in through ``params``.
+    Defaults match the corrected model: spline mixing and
+    :func:`tb_macro.model.fold_spline_contact`.
 
     The returned function is jitted. ``total`` is the density NUTS should
     factor. It is ``-1e10`` when the solver does not report success. The
@@ -358,18 +367,8 @@ def _smooth_case() -> MixingCase:
 
 
 def _spline_case() -> MixingCase:
-    contact = prepare_spline(*_static_arrays(), years=_CONTACT_YEARS)
-
-    def mixing(calendar: Any, params: dict[str, Any]) -> Any:
-        return params["curve"].at(calendar)
-
-    def fold(params: dict[str, Any]) -> dict[str, Any]:
-        ready = contact.materialize(params["bg_mixing"], params["a_spread"], params["pc_strength"])
-        if ready.curve is None:
-            raise ValueError("prepare_spline did not fit a curve")
-        return {"curve": ready.curve}
-
-    return MixingCase("spline", mixing, fold)
+    """Folded spline: same contact path as default ``run`` / remote calibration."""
+    return MixingCase("spline", spline_mixing, fold_spline_contact)
 
 
 def build_mixing_cases() -> tuple[MixingCase, ...]:
@@ -377,19 +376,33 @@ def build_mixing_cases() -> tuple[MixingCase, ...]:
 
     Free in the stage is the same function as folded, at a higher price, so
     it is not a separate case. Smooth is fit on the weight table and is
-    constant before 1950. Stepwise and spline cover the solver span.
+    constant before 1950. Stepwise and spline cover the solver span. The
+    default model and remote calibration use the spline case.
     """
     return (
-        MixingCase("baseline", None, None),
+        MixingCase("baseline", baseline_mixing, None),
         _stepwise_case(),
         _smooth_case(),
         _spline_case(),
     )
 
 
-def compile_case(case: MixingCase, *, match_golden: bool = False) -> Any:
-    """Compile one case. Default is the corrected model; goldens need ``match_golden``."""
-    return compile_model(match_golden=match_golden, mixing=case.mixing)
+def compile_case(
+    case: MixingCase,
+    *,
+    match_golden: bool = False,
+    entry: Any | None = None,
+) -> Any:
+    """Compile one case. Default is the corrected model; goldens need ``match_golden``.
+
+    ``entry`` is the birth-rate lookup passed to ``compile_model``. Leave it
+    ``None`` for the mode default (smooth when ``match_golden`` is false, step
+    when true). Pass an explicit callable when a run must pin and log the choice.
+    """
+    kwargs: dict[str, Any] = {"match_golden": match_golden, "mixing": case.mixing}
+    if entry is not None:
+        kwargs["entry"] = entry
+    return compile_model(**kwargs)
 
 
 MCMC_EXTRA_FIELDS: tuple[str, ...] = (

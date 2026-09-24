@@ -55,17 +55,16 @@ def birth_rate_at(model_time: Any, times: Any, rates: Any, start_time: float) ->
 
 
 def smooth_birth_rate_at(model_time: Any, times: Any, rates: Any, start_time: float) -> Any:
-    """C0 alternative to :func:`birth_rate_at`. Nothing calls it.
+    """C0 alternative to :func:`birth_rate_at`. Default entry rate for ``run``.
 
     The step lookup jumps on every 1 January, and an adaptive solver rejects a
-    step at each of them: with a spline mixing matrix in place it is what is
-    left of the rejected-step budget. See ``plans/mixing-spline.md`` for the
-    measurement.
+    step at each of them. With the spline mixing matrix this is what is left of
+    the rejected-step budget. See ``plans/mixing-spline.md`` for the measurement.
 
     The rates are already a finite difference of the population series, so a
     linear blend between them is a smoother estimate of the same derivative,
-    not a new assumption. It is still a different vector field from the one the
-    goldens record, which is why it is opt-in.
+    not a new assumption. ``match_golden=True`` keeps the step lookup so parity
+    goldens stay on the summer3 vector field.
     """
     time = model_time + start_time
     return jnp.interp(time, times, rates, left=rates[0], right=rates[-1])

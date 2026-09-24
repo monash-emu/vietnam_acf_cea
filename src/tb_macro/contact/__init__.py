@@ -2,9 +2,10 @@
 
 ``prepare_stepwise`` matches ``get_norm_c_matrix``. ``prepare_smooth`` treats
 the annual demographic tables as samples of smooth curves. ``prepare_spline``
-is the fast one: it normalises at each calendar year and joins those matrices
-with a cubic, so a solver stage never sees an eigenproblem. None of them is
-called by the golden model. See ``plans/mixing-matrix.md``.
+is the default contact path for ``run`` / calibration: it normalises at each
+calendar year and joins those matrices with a cubic, so a solver stage never
+sees an eigenproblem. The golden / ``match_golden`` path still calls
+``get_norm_c_matrix``. See ``plans/mixing-matrix.md``.
 """
 
 from __future__ import annotations

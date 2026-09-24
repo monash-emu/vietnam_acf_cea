@@ -50,10 +50,14 @@ from tb_macro.constants import (
     START_TIME,
     YOUNG_END_AGE,
 )
+from tb_macro.contact import prepare_spline
 from tb_macro.curves import get_cos_multicurve, get_scale_data
-from tb_macro.demography import birth_rate_at
+from tb_macro.demography import birth_rate_at, smooth_birth_rate_at
 from tb_macro.mixing import get_norm_c_matrix
 from tb_macro.static_data import StaticInputs, load_static
+
+# Sentinel for ``compile_model``: omit the argument to get the mode default.
+_DEFAULT = object()
 
 STATE = Property("disease_state", DISEASE_STATES)
 AGE = Property("age", AGES)
@@ -84,6 +88,74 @@ _DEATH_RATE = Data.table(
     np.asarray(STATIC.death_rates, dtype=np.float64),
     over=AGE,
 )
+
+# Default corrected path: folded spline contact + continuous (C0) entry rate.
+# ``match_golden`` keeps get_norm_c_matrix and the step entry lookup.
+_CONTACT_YEARS = np.arange(START_TIME, START_TIME + N_TIMES + 1.0)
+_SPLINE_CONTACT: Any = None
+# Patchable by timing harnesses (``reference/time_mixing.py --entry step``).
+entry_rate_at = smooth_birth_rate_at
+
+
+def _spline_contact() -> Any:
+    """One prepare_spline for the solver span. Built once per process."""
+    global _SPLINE_CONTACT
+    if _SPLINE_CONTACT is None:
+        _SPLINE_CONTACT = prepare_spline(
+            STATIC.age_weights,
+            STATIC.weight_ends,
+            STATIC.pops,
+            STATIC.pop_ends,
+            STATIC.fert,
+            STATIC.fert_ends,
+            years=_CONTACT_YEARS,
+        )
+    return _SPLINE_CONTACT
+
+
+def fold_spline_contact(params: dict[str, Any]) -> dict[str, Any]:
+    """Fold mixing scalars into a ``SplineCurve``. Once per parameter draw."""
+    ready = _spline_contact().materialize(
+        params["bg_mixing"], params["a_spread"], params["pc_strength"]
+    )
+    if ready.curve is None:
+        raise ValueError("prepare_spline did not fit a curve")
+    return {"curve": ready.curve}
+
+
+def spline_mixing(calendar: Any, params: dict[str, Any]) -> Any:
+    """Normalised contact matrix from a folded curve, or free-in-stage if absent."""
+    curve = params.get("curve")
+    if curve is not None:
+        return curve.at(calendar)
+    return _spline_contact().matrix(
+        calendar, params["bg_mixing"], params["a_spread"], params["pc_strength"]
+    )
+
+
+def baseline_mixing(calendar: Any, params: dict[str, Any]) -> Any:
+    """Year-frozen ``get_norm_c_matrix`` (golden / comparison path)."""
+    return get_norm_c_matrix(
+        STATIC.age_weights,
+        STATIC.weight_ends,
+        STATIC.pops,
+        STATIC.pop_ends,
+        STATIC.fert,
+        STATIC.fert_ends,
+        calendar,
+        params["bg_mixing"],
+        params["a_spread"],
+        params["pc_strength"],
+    )
+
+
+def prepare_run_params(params: dict[str, Any], *, match_golden: bool = False) -> dict[str, Any]:
+    """Attach a folded spline curve on the default path when the caller has not."""
+    if match_golden or params.get("curve") is not None:
+        return params
+    prepared = dict(params)
+    prepared.update(fold_spline_contact(prepared))
+    return prepared
 
 
 def _calendar() -> Any:
@@ -161,19 +233,24 @@ def force_of_infection(
     *,
     y: Any,
     t: Any,
-    mixing: Any = None,
+    mixing: Any = _DEFAULT,
+    entry: Any = _DEFAULT,
 ) -> dict[str, Any]:
     """Per-step mixing matrix, death rates, treatment hazards, ACF.
 
     Infection pressure itself is ``ForceOfInfection`` on the flow graph.
-    # GLUE(KI6): the matrix is ``get_norm_c_matrix`` from the original file.
-    ``mixing(calendar, params)``, when set, replaces that call. ``run`` does not set it.
+    Default ``mixing`` is the folded spline (:func:`spline_mixing`). Pass
+    :func:`baseline_mixing` or ``None`` for ``get_norm_c_matrix`` (golden path).
+    Default ``entry`` is :data:`entry_rate_at` (smooth); the golden path passes
+    the step lookup ``birth_rate_at``.
     Treatment hazards and ACF stay here: they combine several time series into
     per-compartment rates that are not yet single rate-tree expressions.
     """
     static = STATIC
     calendar = t + START_TIME
     pop = PropertyData(PMAP, y)
+    if mixing is _DEFAULT:
+        mixing = spline_mixing
     if mixing is None:
         mixing_matrix = get_norm_c_matrix(
             static.age_weights,
@@ -205,13 +282,15 @@ def force_of_infection(
         STATE["active"], 0.0
     )
 
+    if entry is _DEFAULT:
+        entry = entry_rate_at
     derived = dict(params)
     derived["mixing"] = mixing_matrix
     derived["success_rate"] = pop.broadcast_over(AGE, success)
     derived["relapse_rate"] = pop.broadcast_over(AGE, relapse)
     derived["rx_death_rate"] = pop.broadcast_over(AGE, rx_death)
     derived["acf_rate"] = acf
-    derived["entry_rate"] = birth_rate_at(t, static.entry_times, static.entry_rates, START_TIME)
+    derived["entry_rate"] = entry(t, static.entry_times, static.entry_rates, START_TIME)
     return derived
 
 
@@ -501,7 +580,13 @@ def build_model(*, match_golden: bool = False) -> FlowModel:
 
 
 def _derived_field(params: dict[str, Any], *, y: Any, t: Any) -> dict[str, Any]:
-    return force_of_infection(params, y=y, t=t)
+    """Default corrected path: spline mixing + smooth entry."""
+    return force_of_infection(params, y=y, t=t, mixing=spline_mixing, entry=entry_rate_at)
+
+
+def _golden_derived_field(params: dict[str, Any], *, y: Any, t: Any) -> dict[str, Any]:
+    """Golden path: year-frozen matrix + step entry (summer3 vector field pieces)."""
+    return force_of_infection(params, y=y, t=t, mixing=None, entry=birth_rate_at)
 
 
 def _copy_summer3_destination_index(compiled: Any) -> None:
@@ -529,11 +614,13 @@ def _use_full_progression_weight(compiled: Any) -> None:
 def get_compiled(*, match_golden: bool = False) -> Any:
     """Compile once per mode. ``derived_fn`` is module-level so the jit cache is stable.
 
-    Default is the docstring model. ``match_golden=True`` copies the three
-    summer3 bugs so trajectories track ``tests/golden/``.
+    Default is the docstring model with folded-spline contact and smooth entry.
+    ``match_golden=True`` copies the three summer3 bugs and keeps the year-frozen
+    matrix plus step entry so trajectories track ``tests/golden/``.
     """
     if match_golden not in _COMPILED:
-        compiled = build_model(match_golden=match_golden).compile(derived_fn=_derived_field)
+        field = _golden_derived_field if match_golden else _derived_field
+        compiled = build_model(match_golden=match_golden).compile(derived_fn=field)
         if match_golden:
             _copy_summer3_destination_index(compiled)
         else:
@@ -558,17 +645,28 @@ def np_save_ts() -> Any:
     return np.arange(N_TIMES)
 
 
-def compile_model(*, match_golden: bool = False, mixing: Any = None) -> Any:
+def compile_model(
+    *,
+    match_golden: bool = False,
+    mixing: Any = _DEFAULT,
+    entry: Any = _DEFAULT,
+) -> Any:
     """Compile a model that is not stored in the module cache.
 
-    ``mixing(calendar, params)`` replaces ``get_norm_c_matrix`` when it is not
-    ``None``. ``run`` never passes one, so the default path stays on the
-    baseline matrix. Arrays on ``params`` are traced inputs: a new table of
-    the same shape does not recompile.
+    Default (``match_golden=False``): :func:`spline_mixing` and
+    :data:`entry_rate_at` (smooth). ``match_golden=True``: ``get_norm_c_matrix``
+    and the step entry lookup. Pass ``mixing`` / ``entry`` to override.
+    Arrays on ``params`` are traced inputs: a new table of the same shape does
+    not recompile. Callers that use the spline should fold via
+    :func:`fold_spline_contact` (or :func:`prepare_run_params`) once per draw.
     """
+    if mixing is _DEFAULT:
+        mixing = None if match_golden else spline_mixing
+    if entry is _DEFAULT:
+        entry = birth_rate_at if match_golden else entry_rate_at
 
     def field(params: dict[str, Any], *, y: Any, t: Any) -> dict[str, Any]:
-        return force_of_infection(params, y=y, t=t, mixing=mixing)
+        return force_of_infection(params, y=y, t=t, mixing=mixing, entry=entry)
 
     compiled = build_model(match_golden=match_golden).compile(derived_fn=field)
     if match_golden:
@@ -604,9 +702,10 @@ def run(params: dict[str, Any], *, match_golden: bool = False, **solver: Any) ->
     """Integrate index time ``0 … 301`` with Dopri5.
 
     Default sends replacement deaths to age 0, lets the progression split
-    sum to one, and applies ``rel_infectiousness_subclin`` to subclinical
-    disease. ``match_golden=True`` copies the three summer3 bugs so the run
-    tracks ``tests/golden/``.
+    sum to one, applies ``rel_infectiousness_subclin`` to subclinical
+    disease, uses the folded spline contact matrix, and a smooth entry rate.
+    ``match_golden=True`` copies the three summer3 bugs and the year-frozen
+    matrix plus step entry so the run tracks ``tests/golden/``.
 
     summer4's ``run`` accepts ``dtmax`` and the other ``PIDController`` knobs
     via :mod:`tb_macro.step_controls`. This function does not pass them: the
@@ -616,7 +715,8 @@ def run(params: dict[str, Any], *, match_golden: bool = False, **solver: Any) ->
     ``PIDController(rtol=1e-5, atol=1e-5, dtmax=1)``. Pass those through
     ``**solver`` to match a notebook, not a golden.
     """
-    return solve(get_compiled(match_golden=match_golden), params, **solver)
+    prepared = prepare_run_params(params, match_golden=match_golden)
+    return solve(get_compiled(match_golden=match_golden), prepared, **solver)
 
 
 def calendar_years() -> Any:
