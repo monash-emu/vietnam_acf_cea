@@ -38,13 +38,14 @@ from tb_macro.contact import prepare_smooth, prepare_spline, prepare_stepwise
 from tb_macro.contact.spline import SplineCurve
 from tb_macro.model import STATIC, compile_model, save_plan
 from tb_macro.parameters import BASE_PARAMS, PARAM_BOUNDS
+from tb_macro.solvers import FORWARD_SOLVER
 
 N_SETS = 6
 SEED = 0
 # The solver queries well before the weight table starts; the year tables cover
 # the whole span and clip each series the way ``get_year_index`` clips it.
 YEARS = np.arange(1800.0, 2102.0)
-SOLVER = dict(t0=0.0, t1=302.0, dt=0.1, solver="dopri5", rtol=1e-9, atol=1e-9, max_steps=20_000)
+SOLVER = dict(t0=0.0, t1=302.0, dt=0.1, **FORWARD_SOLVER)
 ARRAYS = (
     STATIC.age_weights,
     STATIC.weight_ends,

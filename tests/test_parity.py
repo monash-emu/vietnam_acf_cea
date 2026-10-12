@@ -85,7 +85,10 @@ def test_match_golden_progression_edge_weights_are_half() -> None:
 
 
 def test_summer4_import_and_goldens_present() -> None:
-    assert version("summer4") == "0.2.0a4"
+    # Pin is main @ c9548d5 (after the a5 tag); the package still reports 0.2.0a5.
+    assert version("summer4") == "0.2.0a5"
+    from summer4.solvers import Diffrax  # noqa: F401 — Diffrax backends landed post-a5.
+
     for name in fixtures():
         for filename in (
             "compartments.parquet",

@@ -3,7 +3,8 @@
 The Vietnam tuberculosis model from
 [`monash-emu/tb_macroeconomics`](https://github.com/monash-emu/tb_macroeconomics)
 branch `tweak_cases_calib` (`9cc8cf8`), reimplemented on
-[summer4](https://github.com/monash-emu/summer4) `v0.2.0a4`.
+[summer4](https://github.com/monash-emu/summer4) at `c9548d5` (after
+`v0.2.0a5`).
 
 The default model is the corrected docstring version: replacement deaths go to
 age 0, progression weights sum to one, and `rel_infectiousness_subclin` applies
@@ -12,7 +13,10 @@ the smooth (C0) lookup. Parity against the summer3 goldens (bugs included,
 year-frozen mixing, step entry) is opt-in via `match_golden=True`. This is not
 the three-age model in `plans/tb-macro-summer4-port.plan.md`. Forward-run
 goldens are `base`, `nuts_start`, and `acf`. `tb_macro.calibration` is the
-likelihood from the summer3 calibration notebook. `notebooks/05-Calibration.ipynb`
+likelihood from the summer3 calibration notebook (seven custom log/logit-normal
+terms plus a Canberra mixing distance). That density stays hand-rolled for now:
+summer4's `BayesianModel` stock likelihoods (Normal / Poisson / NB on raw
+outputs) do not cover those transforms. `notebooks/05-Calibration.ipynb`
 samples it with that notebook's priors: 100 warmup and 100 samples on 4 chains,
 folded spline contact matrix. `notebooks/06-Optimisation.ipynb` maximises the
 same likelihood with Adam, on the same bounds. `reference/bench_mixing_nuts.py`
@@ -75,9 +79,12 @@ notebooks: it does not install summer4.
 - **Progression** restores weight `1` after compile so
   `1 - progression_prop_infectious` and `progression_prop_infectious` sum to
   one. `match_golden=True` keeps summer3's extra 1/2 scatter.
-- **Solver.** Goldens use Dopri5, initial step `0.1`, `rtol=atol=1e-9`,
-  `max_steps=20_000`, and no `dtmax`. The tb_macroeconomics notebooks pass only
-  `max_steps=4000` and inherit the summer3 runner: `rtol=atol=1e-5`, `dtmax=1`.
-  `tb_macro.step_controls` patches `CompiledModel.run` so those controls work.
-  `run()` does not pass them.
+- **Solver.** Goldens use Dopri5 via `tb_macro.solvers.FORWARD_SOLVER`
+  (`rtol=atol=1e-9`, uncapped step, `max_steps=20_000`). Calibration uses
+  `tb_macro.solvers.CALIBRATION_SOLVER` (`rtol=atol=1e-5`, `dtmax=1`,
+  `max_steps=4000`) as a `Diffrax` backend — summer4 `run` has no `dtmax=`
+  keyword; the controller travels inside `solver=`.
+- **Calibration API.** summer4 `v0.2.0a5` closed ports row TM8 with
+  `BayesianModel`; this port keeps the summer3 seven-term density until those
+  terms are expressible as `OutputSet` / `Target` likelihoods.
 - **Float64.** Enabled in `tb_macro/__init__.py`. summer3 turns it on at import.

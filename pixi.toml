@@ -18,7 +18,9 @@ black = "*"
 # chains work without a flag, and the fastest of the releases that do.
 jax = "==0.7.2"
 jaxlib = "==0.7.2"
-summer4 = { git = "https://github.com/monash-emu/summer4.git", tag = "v0.2.0a4", extras = ["calibration", "pandas", "frames"] }
+# summer4 main at c9548d5 (after v0.2.0a5): Diffrax solver backends (step 29) let
+# run() take a PIDController with dtmax; BayesianModel / wf.* landed in a5.
+summer4 = { git = "https://github.com/monash-emu/summer4.git", rev = "c9548d57dc15e12e5017c117918bb7f1bd0165eb", extras = ["calibration", "pandas", "frames"] }
 arviz = "*"
 h5netcdf = "*"
 h5py = "*"

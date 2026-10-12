@@ -1,17 +1,19 @@
-from typing import Tuple
+from __future__ import annotations
+
 import re
+from pathlib import Path
+from typing import Tuple
+
 import numpy as np
 import pandas as pd
-
 from jax import numpy as jnp
 
 from tb_macro.constants import (
-    BASE_PATH,
-    DATA_PATH,
     AGE_STRATA,
-    MAX_AGE,
     CALENDAR_YEAR_MIDPOINT,
+    DATA_PATH,
     ISO3,
+    MAX_AGE,
 )
 from tb_macro.mixing import normalise_by_spectral_radius
 
@@ -299,13 +301,15 @@ def get_fertility_data(
 def write_conmat_pop_csv(
     iso3: str,
     year: int,
-):
-    """Generate the Conmat population data
-    needed for mixing matrix construction.
+) -> Path:
+    """Write the Conmat population CSV next to ``conmat_all_{iso3}.csv``.
 
     Args:
         iso3: Country identifier
         year: Year to extract data from
+
+    Returns:
+        Path of the written ``{iso3}_pop_{year}.csv`` under ``data/mixing/``.
     """
     pop_data = get_country_pop(iso3)
     single_age = get_single_age_pop_from_ungroups(pop_data)
@@ -313,7 +317,11 @@ def write_conmat_pop_csv(
     pops = group_popsize.loc[year]
     pops.index.name = "age"
     pops.name = "population"
-    pops.to_csv(BASE_PATH / f"src/tb_macro/tb_macro/conmat/{iso3}_pop_{year}.csv")
+    out_dir = DATA_PATH / "mixing"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{iso3}_pop_{year}.csv"
+    pops.to_csv(path)
+    return path
 
 
 def calc_tsr_from_outcomes(

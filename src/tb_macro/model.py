@@ -683,20 +683,19 @@ def compile_model(
 def solve(compiled: Any, params: dict[str, Any], **solver: Any) -> Any:
     """Integrate with the same default solver settings as :func:`run`.
 
-    Keyword arguments are forwarded to ``CompiledModel.run``. That includes
-    the diffrax controls installed by :mod:`tb_macro.step_controls` (``dtmax``,
-    ``dtmin``, the PID coefficients, or a ``stepsize_controller``). Defaults
-    stay on the tight tolerances used for forward-run goldens.
+    Keyword arguments are forwarded to ``CompiledModel.run``. Pass a
+    :class:`~summer4.solvers.Diffrax` backend (see :mod:`tb_macro.solvers`) to
+    set ``dtmax`` or other ``PIDController`` knobs. Defaults stay on the tight
+    uncapped tolerances used for forward-run goldens.
     """
+    from tb_macro.solvers import FORWARD_SOLVER
+
     settings: dict[str, Any] = {
         "t0": 0.0,
         "t1": float(N_TIMES),
         "dt": 0.1,
-        "solver": "dopri5",
-        "rtol": 1e-9,
-        "atol": 1e-9,
-        "max_steps": 20_000,
         "save": save_plan(compiled),
+        **FORWARD_SOLVER,
     }
     settings.update(solver)
     return compiled.run(params, **settings)
@@ -711,13 +710,10 @@ def run(params: dict[str, Any], *, match_golden: bool = False, **solver: Any) ->
     ``match_golden=True`` copies the three summer3 bugs and the year-frozen
     matrix plus step entry so the run tracks ``tests/golden/``.
 
-    summer4's ``run`` accepts ``dtmax`` and the other ``PIDController`` knobs
-    via :mod:`tb_macro.step_controls`. This function does not pass them: the
-    goldens were generated without a step cap, at ``rtol=atol=1e-9``. The
-    tb_macroeconomics notebooks are looser. They pass only ``max_steps=4000``
-    and inherit the summer3 runner: Dopri5, ``dt0=0.1``,
-    ``PIDController(rtol=1e-5, atol=1e-5, dtmax=1)``. Pass those through
-    ``**solver`` to match a notebook, not a golden.
+    Defaults are the golden settings: ``rtol=atol=1e-9``, uncapped step,
+    ``max_steps=20_000``. Calibration uses :data:`tb_macro.solvers.CALIBRATION_SOLVER`
+    (``rtol=atol=1e-5``, ``dtmax=1``, ``max_steps=4000``). Pass ``**solver`` to
+    override.
     """
     prepared = prepare_run_params(params, match_golden=match_golden)
     return solve(get_compiled(match_golden=match_golden), prepared, **solver)

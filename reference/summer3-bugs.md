@@ -133,6 +133,6 @@ sides. Do not change them to chase the golden.
   that order. It is how the series is stored, not a scatter bug.
 - `entry_births` is an absolute increment and can be negative. It matched
   the golden with relative error 0.
-- summer4 cannot set `dtmax`. That is not why the trajectories differ: the
-  vector fields disagree on a frozen golden state, and tightening `rtol`
-  does not close the gap.
+- Forward goldens leave the step uncapped at ``rtol=atol=1e-9``. That is not
+  why the trajectories differ: the vector fields disagree on a frozen golden
+  state, and tightening `rtol` does not close the gap.

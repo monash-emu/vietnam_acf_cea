@@ -56,6 +56,7 @@ from tb_macro.model import (
     spline_mixing,
 )
 from tb_macro.parameters import BASE_PARAMS
+from tb_macro.solvers import CALIBRATION_SOLVER as _CALIBRATION_BACKEND
 from tb_macro.targets import (
     INF_PREV_TARGET,
     LATENT_TARGET,
@@ -71,17 +72,12 @@ MIXING_TARGET_YEAR = 2025.0
 _EPS = 1e-32
 _FAILED = -1.0e10
 
-# The calibration notebook passes only ``max_steps`` and inherits the summer3
-# runner: Dopri5, ``dt0=0.1``, ``rtol=atol=1e-5``, ``dtmax=1``.
+# summer3 runner: Dopri5, ``dt0=0.1``, ``rtol=atol=1e-5``, ``dtmax=1``.
 CALIBRATION_SOLVER: dict[str, Any] = {
     "t0": 0.0,
     "t1": float(N_TIMES),
     "dt": 0.1,
-    "solver": "dopri5",
-    "rtol": 1e-5,
-    "atol": 1e-5,
-    "max_steps": 4000,
-    "dtmax": 1.0,
+    **_CALIBRATION_BACKEND,
 }
 
 # Solver span. Before the weight table, weights clip and fertility still
@@ -297,7 +293,7 @@ def make_log_likelihood(
         total = jnp.zeros(())
         for name in TERM_NAMES:
             total = total + terms[name]
-        ok = lax.stop_gradient(jnp.asarray(result.solver.result_code) == 0)
+        ok = lax.stop_gradient(jnp.asarray(result.solver.ok))
         evaluated = dict(terms)
         evaluated["total"] = jnp.where(ok, total, _FAILED)
         evaluated["ok"] = ok

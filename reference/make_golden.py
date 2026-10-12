@@ -8,10 +8,10 @@ The vendored tree is ``tb_macroeconomics`` ``tweak_cases_calib`` at ``9cc8cf8``.
 Construction matches ``notebooks/03-InspectRun.ipynb`` in ``MODE == "base"``:
 flat 1000 per age, Vietnam demography, ``add_flows_to_model``.
 
-summer4 cannot set ``dtmax``. The original notebook uses the runner default
-``rtol=atol=1e-5`` and ``dtmax=1``. These goldens tighten that to ``1e-9`` and
-``max_steps=20_000`` so reference error sits under the parity tolerance, the
-same reason the three-age port did. Do not edit the parquet to fit summer4.
+The original notebook uses the runner default ``rtol=atol=1e-5`` and
+``dtmax=1``. These goldens tighten that to ``1e-9`` and ``max_steps=20_000``
+(uncapped step) so reference error sits under the parity tolerance, the same
+reason the three-age port did. Do not edit the parquet to fit summer4.
 
 Calibration log-density goldens are written by ``reference/make_calibration_golden.py``
 (also run from ``pixi run -e reference golden``).

@@ -48,7 +48,7 @@ OUTPUT_TIME_STEP: float = 1.0
 # ``arange(1800, 2101)`` has 301 points. summer3 integrates index ``0 … 300``.
 N_TIMES: int = 301
 # Occupied compartments agree to a few parts per million. The absolute floor
-# sits above pre-seed roundoff (~1e-9) left by summer4 having no ``dtmax``.
+# sits above pre-seed roundoff (~1e-9); forward goldens leave the step uncapped.
 PARITY_RTOL: float = 1e-5
 PARITY_ATOL: float = 1e-8
 POP_PER_AGE: float = 1000.0
