@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from tb_macro.constants import CALENDAR_YEAR_MIDPOINT
+from vacf.constants import CALENDAR_YEAR_MIDPOINT
 
 
 def _at_midyear(values: dict[float, float]) -> pd.Series:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from jax import numpy as jnp
 
-from tb_macro.calibration import (
+from vacf.calibration import (
     ADULT_ROWS,
     HIGH_ROWS,
     LATENT_ROWS,
@@ -13,8 +13,8 @@ from tb_macro.calibration import (
     TERM_NAMES,
     TREATMENT_ROWS,
 )
-from tb_macro.inputs import get_norm_conmat
-from tb_macro.targets import NOTIF_TARGET
+from vacf.inputs import get_norm_conmat
+from vacf.targets import NOTIF_TARGET
 
 
 def test_likelihood_has_the_seven_summer3_terms() -> None:
@@ -57,8 +57,8 @@ def test_adult_selections_are_nonempty_and_nested() -> None:
 @pytest.mark.slow
 def test_stepwise_likelihood_matches_the_baseline() -> None:
     """The folded year table is the baseline vector field, so the density agrees."""
-    from tb_macro.calibration import build_mixing_cases, compile_case, make_log_likelihood
-    from tb_macro.parameters import BASE_PARAMS, get_nuts_init_values
+    from vacf.calibration import build_mixing_cases, compile_case, make_log_likelihood
+    from vacf.parameters import BASE_PARAMS, get_nuts_init_values
 
     params = dict(BASE_PARAMS)
     params.update(get_nuts_init_values())

@@ -12,9 +12,9 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from tb_macro.contact.smooth import SmoothContact, prepare_smooth
-from tb_macro.contact.spline import SplineContact, prepare_spline
-from tb_macro.contact.stepwise import StepwiseContact, prepare_stepwise
+from vacf.contact.smooth import SmoothContact, prepare_smooth
+from vacf.contact.spline import SplineContact, prepare_spline
+from vacf.contact.stepwise import StepwiseContact, prepare_stepwise
 
 __all__ = [
     "ContactMatrix",

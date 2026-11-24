@@ -18,7 +18,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 SNAPSHOT = ROOT / "reference" / "snapshot"
 sys.path.insert(0, str(ROOT / "reference"))
-sys.path.insert(0, str(SNAPSHOT / "src" / "tb_macro"))
+sys.path.insert(0, str(SNAPSHOT / "src" / "vacf"))
 
 from calibration_golden import (  # noqa: E402
     CALIBRATION_SEED,
@@ -29,7 +29,7 @@ from calibration_golden import (  # noqa: E402
     write_params,
     write_terms,
 )
-from tb_macro.calibration import (  # noqa: E402
+from vacf.calibration import (  # noqa: E402
     get_death_log_likelihood,
     get_infprop_log_likelihood,
     get_latent_log_likelihood,
@@ -38,16 +38,16 @@ from tb_macro.calibration import (  # noqa: E402
     get_prev_decline_log_likelihood,
     get_pulm_prev_log_likelihood,
 )
-from tb_macro.constants import AGE_STRATA, END_TIME, ISO3, START_TIME  # noqa: E402
-from tb_macro.demography import prepare_pop_data_for_entries  # noqa: E402
-from tb_macro.epi import add_flows_to_model, get_base_model, initialise_pops  # noqa: E402
-from tb_macro.inputs import (
+from vacf.constants import AGE_STRATA, END_TIME, ISO3, START_TIME  # noqa: E402
+from vacf.demography import prepare_pop_data_for_entries  # noqa: E402
+from vacf.epi import add_flows_to_model, get_base_model, initialise_pops  # noqa: E402
+from vacf.inputs import (
     get_norm_conmat,
     load_demography,
     load_fertility,
     load_who_outcomes,
 )  # noqa: E402
-from tb_macro.parameters import BASE_PARAMS, PARAM_BOUNDS, get_nuts_init_values  # noqa: E402
+from vacf.parameters import BASE_PARAMS, PARAM_BOUNDS, get_nuts_init_values  # noqa: E402
 
 
 def calibration_draws(*, seed: int, n_random: int) -> list[tuple[str, dict[str, float]]]:

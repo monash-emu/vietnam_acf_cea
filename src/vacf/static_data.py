@@ -8,20 +8,20 @@ from typing import Any
 import numpy as np
 from jax import numpy as jnp
 
-from tb_macro.constants import (
+from vacf.constants import (
     AGE_STRATA,
     DATA_PATH,
     ISO3,
     POP_PER_AGE,
     START_TIME,
 )
-from tb_macro.curves import get_scale_data
-from tb_macro.demography import (
+from vacf.curves import get_scale_data
+from vacf.demography import (
     frame_matrix,
     inflate_oldest_death_rates,
     prepare_pop_data_for_entries,
 )
-from tb_macro.inputs import load_demography, load_fertility, load_who_outcomes
+from vacf.inputs import load_demography, load_fertility, load_who_outcomes
 
 # Touch DATA_PATH so a missing checkout fails at import with a clear path.
 assert DATA_PATH.is_dir(), DATA_PATH

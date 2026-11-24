@@ -3,8 +3,14 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 .pytest_cache/
-# Calibration draws from notebooks/05-Calibration.ipynb
+# Model outputs: calibration posteriors, scenario runs and their CSV summaries.
 outputs/
+# Posteriors and pickled outputs saved anywhere else (e.g. from a notebook).
+*.nc
+*.pkl
+# SLURM job logs, written next to wherever sbatch was invoked on MASSIVE.
+slurm-*.out
+.DS_Store
 *.egg-info/
 dist/
 build/

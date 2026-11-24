@@ -11,7 +11,7 @@ from typing import Any
 
 import pandas as pd
 
-from tb_macro.constants import CALENDAR_YEAR_MIDPOINT, REPO_ROOT
+from vacf.constants import CALENDAR_YEAR_MIDPOINT, REPO_ROOT
 
 
 def get_logger(log_file: Path) -> logging.Logger:

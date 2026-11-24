@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from jax import numpy as jnp
 
-from tb_macro.constants import AGE_STRATA, TOP_AGE_BRACKET_INFLATION
+from vacf.constants import AGE_STRATA, TOP_AGE_BRACKET_INFLATION
 
 
 def inflate_oldest_death_rates(death_rates: pd.DataFrame) -> pd.DataFrame:

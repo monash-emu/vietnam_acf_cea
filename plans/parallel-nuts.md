@@ -28,7 +28,7 @@ imported. It sets
 XLA_FLAGS=--xla_force_host_platform_device_count=4
 ```
 
-Importing `tb_macro` imports JAX, so the flag has to be set from `sys.argv`
+Importing `vacf` imports JAX, so the flag has to be set from `sys.argv`
 at the top of `reference/bench_mixing_nuts.py`, before any JAX import. The
 script does that, and it raises if `mcmc.chain_method` is not `"parallel"`.
 

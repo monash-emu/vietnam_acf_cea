@@ -13,19 +13,19 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from tb_macro.calibration import MIXING_TARGET_YEAR
-from tb_macro.constants import AGE_STRATA, DISEASE_STATES, INFECT_COMPS, INF_STRATA, CLIN_STRATA
-from tb_macro.inputs import get_norm_conmat, load_demography
-from tb_macro.mixing import build_s_matrix_single_age_components, canberra_distance
-from tb_macro.model import calendar_years, prepare_run_params, spline_mixing
-from tb_macro.outputs import (
+from vacf.calibration import MIXING_TARGET_YEAR
+from vacf.constants import AGE_STRATA, DISEASE_STATES, INFECT_COMPS, INF_STRATA, CLIN_STRATA
+from vacf.inputs import get_norm_conmat, load_demography
+from vacf.mixing import build_s_matrix_single_age_components, canberra_distance
+from vacf.model import calendar_years, prepare_run_params, spline_mixing
+from vacf.outputs import (
     _data,
     age_population,
     disease_state_totals,
     flow_total,
 )
-from tb_macro.parameters import PARAM_ABBREVS, PARAM_BOUNDS, PARAM_NAMES
-from tb_macro.static_data import load_static
+from vacf.parameters import PARAM_ABBREVS, PARAM_BOUNDS, PARAM_NAMES
+from vacf.static_data import load_static
 
 _INFECT_SOURCE_LABELS = {
     "mtb_naive": "never-infected",
@@ -84,7 +84,7 @@ def _area(fig: go.Figure, frame: pd.DataFrame, row: int, col: int, *, stack: boo
 
 def _partial_stratum_props(result: Any, key: str, categories: tuple[str, ...]) -> pd.DataFrame:
     """Share of ``active`` population in each ragged stratum over time."""
-    from tb_macro.model import PMAP
+    from vacf.model import PMAP
 
     data = _data(result["compartments"])
     years = _years()

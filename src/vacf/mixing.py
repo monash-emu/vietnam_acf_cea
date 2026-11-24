@@ -1,6 +1,8 @@
+from typing import Any
+
 from jax import numpy as jnp
 
-from tb_macro.constants import AGE_STRATA, CANBERRA_EPS, MAX_AGE
+from vacf.constants import AGE_STRATA, CANBERRA_EPS, MAX_AGE
 
 
 def get_year_index(
@@ -375,3 +377,34 @@ def canberra_distance(
     x = m1.reshape(-1)
     y = m2.reshape(-1)
     return jnp.sum(jnp.abs(x - y) / (jnp.abs(x) + jnp.abs(y) + CANBERRA_EPS))
+
+
+def homogeneous_matrix(pop: Any) -> Any:
+    """Age-homogeneous (random) mixing, normalised by spectral radius.
+
+    Every age group contacts every other in proportion to that group's share of the
+    population, so no age assortativity, parent-child structure or background mixing level
+    remains. The result is rank one: each row is the population vector, so after
+    normalisation each row is the population share vector.
+
+    Normalising by spectral radius keeps the matrix on the same scale as the
+    contact-data-derived matrices, so ``raw_transmission_rate`` remains comparable in
+    magnitude between mixing assumptions. It does **not** make a posterior fitted under one
+    assumption valid under the other.
+
+    Args:
+        pop: Population by modelled age group at a point in time.
+
+    Returns:
+        The normalised homogeneous contact matrix.
+
+    Notes:
+    -----
+    Contact between age groups is assumed homogeneous: individuals
+    mix at random, so the expected number of contacts with each age
+    group is proportional to that group's share of the population.
+    No empirical contact survey data informs the age pattern of
+    transmission under this assumption.
+    """
+    n = pop.shape[0]
+    return normalise_by_spectral_radius(jnp.ones((n, n)) * pop[None, :])

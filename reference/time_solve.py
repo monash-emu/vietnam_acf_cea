@@ -13,13 +13,13 @@ from __future__ import annotations
 import time
 
 import numpy as np
-import make_golden  # noqa: F401  — inserts the snapshot on sys.path before tb_macro
+import make_golden  # noqa: F401  — inserts the snapshot on sys.path before vacf
 
-from tb_macro.constants import AGE_STRATA, END_TIME, ISO3, START_TIME  # noqa: E402
-from tb_macro.demography import prepare_pop_data_for_entries  # noqa: E402
-from tb_macro.epi import add_flows_to_model, get_base_model, initialise_pops  # noqa: E402
-from tb_macro.inputs import load_demography, load_fertility, load_who_outcomes  # noqa: E402
-from tb_macro.parameters import BASE_PARAMS, PARAM_BOUNDS  # noqa: E402
+from vacf.constants import AGE_STRATA, END_TIME, ISO3, START_TIME  # noqa: E402
+from vacf.demography import prepare_pop_data_for_entries  # noqa: E402
+from vacf.epi import add_flows_to_model, get_base_model, initialise_pops  # noqa: E402
+from vacf.inputs import load_demography, load_fertility, load_who_outcomes  # noqa: E402
+from vacf.parameters import BASE_PARAMS, PARAM_BOUNDS  # noqa: E402
 
 N_SETS = 6
 SEED = 0

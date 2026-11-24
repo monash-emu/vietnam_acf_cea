@@ -14,8 +14,8 @@ from typing import Any
 import numpy as np
 from jax import numpy as jnp, vmap
 
-from tb_macro.constants import AGE_STRATA, MAX_AGE
-from tb_macro.contact.aggregate import (
+from vacf.constants import AGE_STRATA, MAX_AGE
+from vacf.contact.aggregate import (
     band_ids,
     components,
     fertility_pairs,
@@ -23,7 +23,7 @@ from tb_macro.contact.aggregate import (
     unit_years,
     year_index_np,
 )
-from tb_macro.mixing import normalise_by_spectral_radius
+from vacf.mixing import normalise_by_spectral_radius
 
 
 def year_index_jax(time: Any, start: float, stop: float) -> Any:

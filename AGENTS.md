@@ -16,7 +16,7 @@
 - Notebooks are a user gate: each phase PR lists the notebooks to run and the
   claim to check.
 - Plans are immutable records in `plans/`.
-- JAX float64 is enabled in `tb_macro/__init__.py`. The summer3 reference uses
+- JAX float64 is enabled in `vacf/__init__.py`. The summer3 reference uses
   float64; summer4 does not turn it on.
 
 ```bash

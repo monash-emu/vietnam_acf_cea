@@ -36,8 +36,7 @@ from summer4 import (
 )
 from summer4.data import Data
 from summer4.epi import FOIKind, ForceOfInfection, MixingMatrix
-from tb_macro.constants import (
-    ACF_MIN_AGE,
+from vacf.constants import (
     AGE_STRATA,
     AGES,
     CLIN_STRATA,
@@ -50,11 +49,11 @@ from tb_macro.constants import (
     START_TIME,
     YOUNG_END_AGE,
 )
-from tb_macro.contact import prepare_spline
-from tb_macro.curves import get_cos_multicurve, get_scale_data
-from tb_macro.demography import birth_rate_at, smooth_birth_rate_at
-from tb_macro.mixing import get_norm_c_matrix
-from tb_macro.static_data import StaticInputs, load_static
+from vacf.contact import prepare_spline
+from vacf.curves import get_cos_multicurve, get_scale_data
+from vacf.demography import birth_rate_at, smooth_birth_rate_at
+from vacf.mixing import get_norm_c_matrix
+from vacf.static_data import StaticInputs, load_static
 
 # Sentinel for ``compile_model``: omit the argument to get the mode default.
 _DEFAULT = object()
@@ -275,16 +274,32 @@ def force_of_infection(
     unsucc = get_cos_multicurve(calendar, static.unsucc_x, static.unsucc_y)
     success, relapse, rx_death = _outcome_rates(params["rx_duration"], unsucc, tsr, deaths)
     screen = _acf_screen(calendar, params)
-    acf_inf = jnp.array(
-        [
-            screen * params["acf_sensitivity_low"] * params["prop_lowinf_bactpos"],
-            screen * params["acf_sensitivity_high"],
-        ]
+    # Screening sensitivity varies by symptom status as well as infectiousness, and the
+    # four values are not a product of the two dimensions: in the source data the
+    # symptomatic-to-asymptomatic ratio is 1/0.25 for less-infectious disease but 1/0.85
+    # for more-infectious disease. They are therefore assembled as a sum of two masked
+    # terms rather than a single outer product.
+    #
+    # No prop_lowinf_bactpos factor appears here. The sensitivities are defined against a
+    # full-algorithm reference standard that already embeds bacteriological
+    # confirmability, so applying it again would count that twice.
+    symptomatic = screen * jnp.array(
+        [params["acf_sensitivity_sympt_low"], params["acf_sensitivity_sympt_high"]]
     )
-    age_mask = jnp.where(_AGE_BREAKS >= ACF_MIN_AGE, 1.0, 0.0)
-    acf = (pop.broadcast_over(INFECTIOUS, acf_inf) * pop.broadcast_over(AGE, age_mask)).keep(
-        STATE["active"], 0.0
+    asymptomatic = screen * jnp.array(
+        [params["acf_sensitivity_asympt_low"], params["acf_sensitivity_asympt_high"]]
     )
+    clin_only = jnp.array([1.0, 0.0])  # CLIN_STRATA order: ("clin", "subclin")
+    subclin_only = jnp.array([0.0, 1.0])
+    acf_sensitivity = pop.broadcast_over(CLINICAL, clin_only) * pop.broadcast_over(
+        INFECTIOUS, symptomatic
+    ) + pop.broadcast_over(CLINICAL, subclin_only) * pop.broadcast_over(
+        INFECTIOUS, asymptomatic
+    )
+    # Eligibility floor is a parameter, so a scenario can change who is screened without
+    # editing the model and without invalidating goldens generated at a different floor.
+    age_mask = jnp.where(_AGE_BREAKS >= params["acf_min_age"], 1.0, 0.0)
+    acf = (acf_sensitivity * pop.broadcast_over(AGE, age_mask)).keep(STATE["active"], 0.0)
 
     if entry is _DEFAULT:
         entry = entry_rate_at
@@ -684,11 +699,11 @@ def solve(compiled: Any, params: dict[str, Any], **solver: Any) -> Any:
     """Integrate with the same default solver settings as :func:`run`.
 
     Keyword arguments are forwarded to ``CompiledModel.run``. Pass a
-    :class:`~summer4.solvers.Diffrax` backend (see :mod:`tb_macro.solvers`) to
+    :class:`~summer4.solvers.Diffrax` backend (see :mod:`vacf.solvers`) to
     set ``dtmax`` or other ``PIDController`` knobs. Defaults stay on the tight
     uncapped tolerances used for forward-run goldens.
     """
-    from tb_macro.solvers import FORWARD_SOLVER
+    from vacf.solvers import FORWARD_SOLVER
 
     settings: dict[str, Any] = {
         "t0": 0.0,
@@ -711,7 +726,7 @@ def run(params: dict[str, Any], *, match_golden: bool = False, **solver: Any) ->
     matrix plus step entry so the run tracks ``tests/golden/``.
 
     Defaults are the golden settings: ``rtol=atol=1e-9``, uncapped step,
-    ``max_steps=20_000``. Calibration uses :data:`tb_macro.solvers.CALIBRATION_SOLVER`
+    ``max_steps=20_000``. Calibration uses :data:`vacf.solvers.CALIBRATION_SOLVER`
     (``rtol=atol=1e-5``, ``dtmax=1``, ``max_steps=4000``). Pass ``**solver`` to
     override.
     """

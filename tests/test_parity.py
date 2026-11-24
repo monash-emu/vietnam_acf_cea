@@ -12,14 +12,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from tb_macro.constants import AGES, FLOW_TOTALS, PARITY_ATOL, PARITY_RTOL
-from tb_macro.model import get_compiled, run
-from tb_macro.outputs import (
+from vacf.constants import AGES, FLOW_TOTALS, PARITY_ATOL, PARITY_RTOL
+from vacf.model import get_compiled, run
+from vacf.outputs import (
     INDICATORS,
     compartments_by_label,
     flow_total,
 )
-from tb_macro.parameters import fixtures
+from vacf.parameters import fixtures
 
 ROOT = Path(__file__).resolve().parents[1]
 GOLDEN = ROOT / "tests" / "golden"
@@ -44,9 +44,9 @@ def test_default_repairs_the_three_bugs() -> None:
 
 def test_default_uses_spline_contact_and_smooth_entry() -> None:
     """Corrected path folds a spline curve; entry_rate_at is the C0 lookup."""
-    from tb_macro.demography import smooth_birth_rate_at
-    from tb_macro.model import entry_rate_at, prepare_run_params
-    from tb_macro.parameters import BASE_PARAMS
+    from vacf.demography import smooth_birth_rate_at
+    from vacf.model import entry_rate_at, prepare_run_params
+    from vacf.parameters import BASE_PARAMS
 
     assert entry_rate_at is smooth_birth_rate_at
     prepared = prepare_run_params(dict(BASE_PARAMS))
@@ -62,7 +62,7 @@ def test_spline_contact_is_concrete_at_import() -> None:
     """
     from jax import core
 
-    from tb_macro.model import _SPLINE_CONTACT
+    from vacf.model import _SPLINE_CONTACT
 
     for name in ("offset", "background", "parent", "pop", "lags"):
         value = getattr(_SPLINE_CONTACT, name)

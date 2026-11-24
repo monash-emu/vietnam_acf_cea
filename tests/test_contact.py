@@ -8,13 +8,13 @@ import jax
 import numpy as np
 from jax import numpy as jnp
 
-from tb_macro.contact import prepare_smooth, prepare_spline, prepare_stepwise
-from tb_macro.contact.aggregate import band_ids, components, pair_layout
-from tb_macro.contact.pchip import eval_jax, eval_np, pchip_slopes
-from tb_macro.contact.perron import spectral_radius
-from tb_macro.mixing import get_norm_c_matrix
-from tb_macro.parameters import BASE_PARAMS
-from tb_macro.static_data import load_static
+from vacf.contact import prepare_smooth, prepare_spline, prepare_stepwise
+from vacf.contact.aggregate import band_ids, components, pair_layout
+from vacf.contact.pchip import eval_jax, eval_np, pchip_slopes
+from vacf.contact.perron import spectral_radius
+from vacf.mixing import get_norm_c_matrix
+from vacf.parameters import BASE_PARAMS
+from vacf.static_data import load_static
 
 # Well under PARITY_RTOL. The two paths sum the same products in a different order.
 _RTOL = 1e-7

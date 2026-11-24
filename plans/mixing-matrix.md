@@ -2,7 +2,7 @@
 
 Record of the design for a faster contact matrix, and for a smooth-gradient
 alternative. The golden model is unchanged: `force_of_infection` still calls
-`get_norm_c_matrix`. The new code lives in `tb_macro.contact` and is compared
+`get_norm_c_matrix`. The new code lives in `vacf.contact` and is compared
 in `notebooks/03-MixingComparison.ipynb`.
 
 ## What is expensive
@@ -128,7 +128,7 @@ the dominant eigenvalue is simple, which a positive contact matrix gives.
 ## Separation roadmap
 
 The contact code does not import `model` or summer4. Age breaks and `MAX_AGE`
-have defaults from `tb_macro.constants` but are arguments. Demographic arrays
+have defaults from `vacf.constants` but are arguments. Demographic arrays
 are arguments, not closures over Vietnam.
 
 1. This branch: `ContactMatrix` plus the two builders. The baseline function
@@ -139,7 +139,7 @@ are arguments, not closures over Vietnam.
    between 1 January dates and must not be swapped in under the parity tests.
 3. Drop the default import of the Vietnam age breaks. Every caller passes
    breaks, fertility, weights and populations.
-4. Move `tb_macro.contact` to its own package when a second model needs it.
+4. Move `vacf.contact` to its own package when a second model needs it.
    `tests/test_contact.py` and `notebooks/03-MixingComparison.ipynb` are the
    checks that move with it.
 

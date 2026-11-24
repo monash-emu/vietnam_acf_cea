@@ -15,8 +15,8 @@ import pandas as pd
 from arviz import InferenceData
 from jax import numpy as jnp
 
-from tb_macro.calibration import CALIBRATION_SOLVER, MixingCase, build_mixing_cases, compile_case
-from tb_macro.constants import (
+from vacf.calibration import CALIBRATION_SOLVER, MixingCase, build_mixing_cases, compile_case
+from vacf.constants import (
     AGES,
     AGE_STRATA,
     DISEASE_STATES,
@@ -25,9 +25,9 @@ from tb_macro.constants import (
     PREV_STATES,
     START_TIME,
 )
-from tb_macro.model import PMAP, get_compiled, solve
-from tb_macro.parameters import BASE_PARAMS
-from tb_macro.utils import add_midyear_points
+from vacf.model import PMAP, get_compiled, solve
+from vacf.parameters import BASE_PARAMS
+from vacf.utils import add_midyear_points
 
 
 def _data(output: Any) -> Any:

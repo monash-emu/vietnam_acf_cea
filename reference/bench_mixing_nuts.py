@@ -59,14 +59,14 @@ import numpyro
 from numpyro import distributions as dist
 from numpyro import infer
 
-from tb_macro.calibration import (
+from vacf.calibration import (
     TERM_NAMES,
     MixingCase,
     build_mixing_cases,
     compile_case,
     make_log_likelihood,
 )
-from tb_macro.parameters import BASE_PARAMS, PARAM_BOUNDS, get_nuts_init_values
+from vacf.parameters import BASE_PARAMS, PARAM_BOUNDS, get_nuts_init_values
 
 # Printed gradients, and the ones checked against a one-sided difference.
 _FOCUS = ("bg_mixing", "a_spread", "pc_strength", "raw_transmission_rate")

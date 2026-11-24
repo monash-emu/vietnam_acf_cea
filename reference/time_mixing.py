@@ -1,7 +1,7 @@
 """Time a whole solve under each mixing matrix. Runs in the default environment.
 
 ``reference/time_solve.py`` times the summer3 snapshot. This times summer4 and
-compares ``get_norm_c_matrix`` with the three builders in ``tb_macro.contact``.
+compares ``get_norm_c_matrix`` with the three builders in ``vacf.contact``.
 The golden path is untouched: every case here passes a ``mixing`` callable to
 ``compile_model``.
 
@@ -32,13 +32,13 @@ import jax
 import numpy as np
 from jax import numpy as jnp
 
-import tb_macro.demography as demography
-import tb_macro.model as model
-from tb_macro.contact import prepare_smooth, prepare_spline, prepare_stepwise
-from tb_macro.contact.spline import SplineCurve
-from tb_macro.model import STATIC, compile_model, save_plan
-from tb_macro.parameters import BASE_PARAMS, PARAM_BOUNDS
-from tb_macro.solvers import FORWARD_SOLVER
+import vacf.demography as demography
+import vacf.model as model
+from vacf.contact import prepare_smooth, prepare_spline, prepare_stepwise
+from vacf.contact.spline import SplineCurve
+from vacf.model import STATIC, compile_model, save_plan
+from vacf.parameters import BASE_PARAMS, PARAM_BOUNDS
+from vacf.solvers import FORWARD_SOLVER
 
 N_SETS = 6
 SEED = 0

@@ -1,28 +1,33 @@
-"""Remote NUTS calibration for massive / M3.
+"""Remote calibration and posterior scenario runs for the Vietnam ACF study on massive/M3.
 
-Writes the same artefacts as summer3 ``scripts/massive/calibrate.py`` on
-``tweak_cases_calib``:
+Calls :func:`vacf.economics.analysis.run_and_store`, the same function as
+``notebooks/10-ACF-CEA-Run.ipynb``: calibrate the homogeneous-mixing model, run every arm in
+:mod:`vacf.economics.study` at ``n_draws`` posterior draws, and write under
+``outputs/<task>/``:
 
-  ``outputs/<task>/<stamp>.nc``
-  ``outputs/<task>/<stamp>_outputs.pkl``
-  ``outputs/<task>/<stamp>.log``
-  ``outputs/<task>/run.log``
+  idata.nc                    posterior (ArviZ netCDF), with NUTS diagnostics
+  posterior_summary.csv       ``az.summary`` of the posterior
+  draws.parquet               parameter values of each sampled draw
+  epi.parquet                 annual epidemiological indicators, per draw and arm
+  economic.parquet            annual economic indicators (costing inputs), per draw and arm
+  calibration_fit.parquet     annual model counterparts of the targets, per draw
+  epi_summary.parquet         cumulative burden over the study horizon, per draw and arm
+  economic_summary.parquet    discounted costs and DALYs, per draw and arm
+  incremental.parquet         efficiency frontier and ICERs, per draw
+  csv/                        median, IQR and 95% interval of the outputs, for sharing
+  run.log                     provenance and convergence summary
+  progress.log                progress messages
 
-The density is the summer4 folded-spline likelihood (``notebooks/05-Calibration.ipynb``):
-every name in ``PARAM_BOUNDS`` is sampled, corrected model (not golden-matching),
-smooth entry rate, tree depth 5, started at ``get_nuts_init_values()``, ``PRNGKey(2)``.
-Scenario reruns after sampling use ``SCENARIO_PARAMS`` (baseline and ACF coverage 0.8).
+Costs and DALYs use the cost inputs at run time. ``economic.parquet`` holds everything
+costing consumes, so they can be recomputed locally without re-running this.
 
-``<stamp>.log`` and ``run.log`` record git provenance plus ``mixing``, ``entry``,
-and ``match_golden`` so a finished job can be audited without reading the script.
+Usage, from the repo root via the SLURM wrapper::
 
-Device count is set before ``tb_macro`` (and JAX) is imported so NumPyro keeps
-``chain_method="parallel"``. JAX is pinned to 0.7.2 for that path. The count
-must match ``tb_macro.constants.N_CHAINS_REMOTE``.
+    ./scripts/massive/launch.sh <n_runs> <walltime>
 
-Usage (from the repo root, via the SLURM wrappers)::
+``n_runs`` is warmup and retained samples per chain. Locally, for a quick check::
 
-    ./scripts/massive/launch.sh 500 24:00:00
+    pixi run python scripts/massive/calibrate.py smoke <n_runs> <n_draws>
 """
 
 from __future__ import annotations
@@ -30,168 +35,39 @@ from __future__ import annotations
 import os
 import sys
 
-# Must match ``tb_macro.constants.N_CHAINS_REMOTE``. Set before any JAX import.
+# One CPU device per chain, set before JAX is imported. Must match N_CHAINS_REMOTE.
 _N_CHAINS = 8
+_kept = [
+    flag
+    for flag in os.environ.get("XLA_FLAGS", "").split()
+    if not flag.startswith("--xla_force_host_platform_device_count=")
+]
+os.environ["XLA_FLAGS"] = " ".join([f"--xla_force_host_platform_device_count={_N_CHAINS}", *_kept])
+
+from vacf.constants import N_CHAINS_REMOTE, OUTPUT_PATH  # noqa: E402
+from vacf.economics import analysis  # noqa: E402
+from vacf.utils import get_logger  # noqa: E402
+
+N_POSTERIOR_DRAWS = 100
+SEED = 0
 
 
-def _enable_parallel_chains(n_chains: int) -> None:
-    """One CPU device per chain, before JAX reads ``XLA_FLAGS``."""
-    if n_chains <= 1:
-        return
-    current = os.environ.get("XLA_FLAGS", "").split()
-    kept = [
-        flag for flag in current if not flag.startswith("--xla_force_host_platform_device_count=")
-    ]
-    os.environ["XLA_FLAGS"] = " ".join(
-        [f"--xla_force_host_platform_device_count={n_chains}", *kept]
-    )
-
-
-_enable_parallel_chains(_N_CHAINS)
-
-import gc  # noqa: E402
-from datetime import UTC, datetime  # noqa: E402
-
-import jax  # noqa: E402
-import numpyro  # noqa: E402
-from jax.random import PRNGKey  # noqa: E402
-from numpyro import distributions as dist  # noqa: E402
-from numpyro import infer  # noqa: E402
-
-from tb_macro.calibration import (  # noqa: E402
-    MCMC_EXTRA_FIELDS,
-    build_mixing_cases,
-    compile_case,
-    inference_data_from_mcmc,
-    make_log_likelihood,
-)
-from tb_macro.constants import (  # noqa: E402
-    N_CHAINS_REMOTE,
-    N_OUTPUT_SAMPLES,
-    OUTPUT_PATH,
-    SCENARIO_PARAMS,
-)
-from tb_macro.demography import smooth_birth_rate_at  # noqa: E402
-from tb_macro.outputs import (  # noqa: E402
-    get_posterior_samples,
-    rerun_model_for_outputs,
-    save_sampled_outputs,
-)
-from tb_macro.parameters import BASE_PARAMS, PARAM_BOUNDS, get_nuts_init_values  # noqa: E402
-from tb_macro.utils import get_git_provenance, get_logger, write_run_log  # noqa: E402
-
-# Corrected default path: folded spline + smooth entry. Logged into every run.
-_MATCH_GOLDEN = False
-_ENTRY_NAME = "smooth"
-_ENTRY_FN = smooth_birth_rate_at
-_MIXING_NAME = "spline"
-
-if N_CHAINS_REMOTE != _N_CHAINS:
-    raise RuntimeError(
-        f"N_CHAINS_REMOTE={N_CHAINS_REMOTE} but device count was set to {_N_CHAINS} "
-        "before import; update both together."
-    )
-
-
-def main(task: str, n_runs: int) -> None:
-    """Run remote NUTS and write idata, sampled outputs, and provenance logs."""
+def main(task: str, n_runs: int, n_draws: int = N_POSTERIOR_DRAWS) -> None:
+    if N_CHAINS_REMOTE != _N_CHAINS:
+        raise RuntimeError(f"N_CHAINS_REMOTE={N_CHAINS_REMOTE} but {_N_CHAINS} devices were set.")
     path = OUTPUT_PATH / task
     path.mkdir(parents=True, exist_ok=True)
-    logger = get_logger(path / "run.log")
-    provenance = get_git_provenance()
-    logger.info(
-        "git commit %s (dirty=%s) branch %s",
-        provenance["commit"],
-        provenance["dirty"],
-        provenance["branch"],
-    )
-    logger.info(
-        "devices %s  chains %s  n_runs %s",
-        jax.local_device_count(),
-        N_CHAINS_REMOTE,
-        n_runs,
-    )
-
-    case = next(item for item in build_mixing_cases() if item.name == _MIXING_NAME)
-    compiled = compile_case(case, match_golden=_MATCH_GOLDEN, entry=_ENTRY_FN)
-    evaluate = make_log_likelihood(compiled, mixing=case.mixing, fold=case.fold)
-    logger.info(
-        "model mixing=%s entry=%s match_golden=%s",
-        case.name,
-        _ENTRY_NAME,
-        _MATCH_GOLDEN,
-    )
-
-    priors = {name: dist.Uniform(low, high) for name, (low, high) in PARAM_BOUNDS.items()}
-
-    def model() -> None:
-        sampled = {name: numpyro.sample(name, prior) for name, prior in priors.items()}
-        params = dict(BASE_PARAMS)
-        params.update(sampled)
-        numpyro.factor("ll", evaluate(params)["total"])
-
-    kernel = infer.NUTS(
-        model,
-        max_tree_depth=5,
-        init_strategy=infer.init_to_value(values=get_nuts_init_values()),
-    )
-    mcmc = infer.MCMC(
-        kernel,
-        num_warmup=n_runs,
-        num_samples=n_runs,
-        num_chains=N_CHAINS_REMOTE,
-        chain_method="parallel",
-        progress_bar=True,
-    )
-    if mcmc.chain_method != "parallel":
-        raise RuntimeError(
-            f"Refusing to run with chain_method={mcmc.chain_method!r} on "
-            f"{jax.local_device_count()} devices. Set "
-            "XLA_FLAGS=--xla_force_host_platform_device_count="
-            f"{N_CHAINS_REMOTE} before importing JAX."
-        )
-    mcmc.run(PRNGKey(2), extra_fields=MCMC_EXTRA_FIELDS)
-    idata = inference_data_from_mcmc(mcmc)
-    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%MZ")
-    idata.to_netcdf(path / f"{timestamp}.nc", engine="h5netcdf")
-
-    # Free NUTS XLAs before the scenario reruns.
-    del mcmc, kernel, evaluate, model
-    jax.clear_caches()
-    gc.collect()
-
-    samples = get_posterior_samples(idata, N_OUTPUT_SAMPLES)
-    outputs, sample_labels = rerun_model_for_outputs(
-        idata,
-        SCENARIO_PARAMS,
-        samples,
-        case=case,
-        match_golden=_MATCH_GOLDEN,
-        entry=_ENTRY_FN,
-    )
-    save_sampled_outputs(path / f"{timestamp}_outputs.pkl", outputs, sample_labels)
-    write_run_log(
-        path / f"{timestamp}.log",
-        extra={
-            "task": task,
-            "n_runs": n_runs,
-            "idata": f"{timestamp}.nc",
-            "outputs": f"{timestamp}_outputs.pkl",
-            "scenario_params": SCENARIO_PARAMS,
-            "mixing": case.name,
-            "entry": _ENTRY_NAME,
-            "match_golden": _MATCH_GOLDEN,
-        },
-    )
-    logger.info(
-        "Wrote %s, %s and %s",
-        f"{timestamp}.nc",
-        f"{timestamp}_outputs.pkl",
-        f"{timestamp}.log",
+    analysis.run_and_store(
+        path,
+        n_runs=n_runs,
+        n_chains=_N_CHAINS,
+        n_draws=n_draws,
+        seed=SEED,
+        logger=get_logger(path / "progress.log"),
     )
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        raise SystemExit(f"usage: {sys.argv[0]} <task_id> <n_runs>")
-    main(sys.argv[1], int(sys.argv[2]))
+    if len(sys.argv) not in (3, 4):
+        raise SystemExit(f"usage: {sys.argv[0]} <task_id> <n_runs> [n_draws]")
+    main(sys.argv[1], int(sys.argv[2]), *(int(arg) for arg in sys.argv[3:]))

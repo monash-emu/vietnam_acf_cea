@@ -31,7 +31,11 @@ AGE_STRATA: list[int] = [0, 3, 5, 10, 15, 18, 40, 65]
 AGES: tuple[str, ...] = tuple(str(age) for age in AGE_STRATA)
 MAX_AGE: int = 120
 YOUNG_END_AGE: int = 15
-ACF_MIN_AGE: int = 10
+#: Age from which people are eligible for active case finding in this analysis.
+ACF_MIN_AGE: int = 15
+#: What the summer3 reference and the forward-run goldens used. Pinned in the ``acf``
+#: fixture so those goldens keep reproducing after the eligibility floor changed.
+ACF_MIN_AGE_SUMMER3: int = 10
 TOP_AGE_BRACKET_INFLATION: float = 2.0
 CANBERRA_EPS: float = 1e-10
 

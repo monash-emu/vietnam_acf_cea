@@ -11,7 +11,7 @@ from typing import Any
 
 import numpy as np
 
-from tb_macro.constants import AGE_STRATA, MAX_AGE
+from vacf.constants import AGE_STRATA, MAX_AGE
 
 
 def year_index_np(ends: Any, time: Any) -> np.ndarray:

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tb_macro.demography import smooth_birth_rate_at
-from tb_macro.utils import write_run_log
+from vacf.demography import smooth_birth_rate_at
+from vacf.utils import write_run_log
 
 
 def test_write_run_log_includes_git_and_model_fields(tmp_path: Path) -> None:
@@ -41,7 +41,7 @@ def test_write_run_log_includes_git_and_model_fields(tmp_path: Path) -> None:
 
 def test_compile_case_accepts_explicit_entry() -> None:
     """Massive pins ``smooth_birth_rate_at`` so the logged entry cannot drift."""
-    from tb_macro.calibration import build_mixing_cases, compile_case
+    from vacf.calibration import build_mixing_cases, compile_case
 
     case = next(item for item in build_mixing_cases() if item.name == "spline")
     compiled = compile_case(case, match_golden=False, entry=smooth_birth_rate_at)

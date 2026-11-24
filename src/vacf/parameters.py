@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from tb_macro.constants import REPO_ROOT
+from vacf.constants import ACF_MIN_AGE, ACF_MIN_AGE_SUMMER3, REPO_ROOT
 
 BASE_PARAMS = {
     "rel_sus_mtb_naive": 1.0,  # Required, but should remain one by definition
@@ -25,11 +25,17 @@ BASE_PARAMS = {
     "seed_duration": 10.0,
     "seed_peak_rate": 0.01,
     "acf_coverage": 0.0,
-    "acf_sensitivity_high": 0.96,
-    "acf_sensitivity_low": 0.775,
+    # Retained from the upstream two-parameter form, which applied prop_lowinf_bactpos
+    # to the low-infectious arm and made no distinction by symptom status. Keeping the
+    # effective values here lets the acf golden reproduce. Scenarios override them.
+    "acf_sensitivity_sympt_low": 0.775 * 2.0 / 3.0,
+    "acf_sensitivity_sympt_high": 0.96,
+    "acf_sensitivity_asympt_low": 0.775 * 2.0 / 3.0,
+    "acf_sensitivity_asympt_high": 0.96,
     "acf_start": 2027,
     "acf_duration": 5.0,
     "acf_scaling_time": 1.0,
+    "acf_min_age": float(ACF_MIN_AGE),
     "raw_transmission_rate": 14.08,
     "bg_mixing": 0.0103,
     "a_spread": 9.87,
@@ -112,11 +118,14 @@ PARAM_NAMES = {
     "infectiousness_gain_rate": "rate of infectiousness increase",
     "infectiousness_loss_rate": "rate of infectiousness decrease",
     "acf_coverage": "active case finding coverage",
-    "acf_sensitivity_high": "active case finding sensitivity for high-infectious TB",
-    "acf_sensitivity_low": "active case finding sensitivity for low-infectious TB",
+    "acf_sensitivity_sympt_low": "ACF sensitivity, symptomatic less-infectious TB",
+    "acf_sensitivity_sympt_high": "ACF sensitivity, symptomatic more-infectious TB",
+    "acf_sensitivity_asympt_low": "ACF sensitivity, asymptomatic less-infectious TB",
+    "acf_sensitivity_asympt_high": "ACF sensitivity, asymptomatic more-infectious TB",
     "acf_start": "active case finding start year",
     "acf_duration": "active case finding duration",
     "acf_scaling_time": "active case finding scale-up time",
+    "acf_min_age": "minimum age eligible for active case finding",
     "prop_lowinf_bactpos": "proportion of low-infectious TB that is bacteriologically positive",
     "clearance_rate": "clearance rate",
     "breakdown_rate": "breakdown rate",
@@ -156,6 +165,18 @@ PARAM_ABBREVS = {
     "rel_sus_cleared": "cleared/recovered susceptibility",
 }
 
+#: Parameters that exist only to shape a contact-data-derived mixing matrix, plus the
+#: standard deviation of the Canberra term that compares it with survey data. Under
+#: homogeneous mixing none of them is identifiable: there is no fitted matrix to shape and
+#: nothing to compare, so leaving them free would let the sampler wander over a flat
+#: direction of the posterior.
+MIXING_PARAMS: tuple[str, ...] = ("bg_mixing", "a_spread", "pc_strength", "mixing_dist_sd")
+
+#: Calibrated parameters for the homogeneous-mixing application.
+HOMOGENEOUS_PARAM_BOUNDS: dict[str, list[float]] = {
+    name: bounds for name, bounds in PARAM_BOUNDS.items() if name not in MIXING_PARAMS
+}
+
 _unknown_name = set(PARAM_NAMES) - set(BASE_PARAMS)
 if _unknown_name:
     raise ValueError(f"PARAM_NAMES keys absent from BASE_PARAMS: {_unknown_name}")
@@ -173,5 +194,8 @@ def fixtures() -> dict[str, dict[str, float]]:
     return {
         "base": dict(BASE_PARAMS),
         "nuts_start": dict(BASE_PARAMS) | get_nuts_init_values(),
-        "acf": dict(BASE_PARAMS) | {"acf_coverage": 0.8},
+        # The goldens were generated with screening from age 10, so the fixture pins the
+        # floor the reference used rather than this analysis's.
+        "acf": dict(BASE_PARAMS)
+        | {"acf_coverage": 0.8, "acf_min_age": float(ACF_MIN_AGE_SUMMER3)},
     }

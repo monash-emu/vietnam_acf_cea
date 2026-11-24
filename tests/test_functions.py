@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from jax import numpy as jnp
 
-from tb_macro.curves import (
+from vacf.curves import (
     binary_search_sum_ge,
     get_cos_multicurve,
     get_scale_data,
@@ -18,20 +19,27 @@ from tb_macro.curves import (
 
 
 def _original_utils() -> Any:
-    path = (
-        Path(__file__).resolve().parents[1]
-        / "reference"
-        / "snapshot"
-        / "src"
-        / "tb_macro"
-        / "tb_macro"
-        / "utils.py"
+    """Load the vendored summer3 helper for comparison.
+
+    The snapshot under ``reference/snapshot`` is a verbatim copy of the originating
+    project and keeps its own package name; renaming inside it would falsify the record
+    and break golden regeneration. Its ``src`` directory goes on ``sys.path`` so its
+    internal imports resolve against the vendored tree rather than against this package,
+    which keeps the reference genuinely independent.
+    """
+    snapshot_src = (
+        Path(__file__).resolve().parents[1] / "reference" / "snapshot" / "src" / "tb_macro"
     )
-    spec = importlib.util.spec_from_file_location("tb_macro_snapshot_utils", path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    path = snapshot_src / "tb_macro" / "utils.py"
+    sys.path.insert(0, str(snapshot_src))
+    try:
+        spec = importlib.util.spec_from_file_location("vacf_snapshot_utils", path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        sys.path.remove(str(snapshot_src))
 
 
 def test_triangle_matches_formula() -> None:

@@ -27,13 +27,14 @@ from typing import Any, Callable
 
 import arviz as az
 import numpy as np
+import pandas as pd
 from arviz import InferenceData
 from jax import jit, lax
 from jax import numpy as jnp
 from numpyro import distributions as dist
 from numpyro.infer import MCMC
 
-from tb_macro.constants import (
+from vacf.constants import (
     AGE_STRATA,
     INFECTED_STATES,
     ISO3,
@@ -41,12 +42,17 @@ from tb_macro.constants import (
     START_TIME,
     YOUNG_END_AGE,
 )
-from tb_macro.contact import prepare_smooth, prepare_stepwise
-from tb_macro.contact.pchip import eval_jax
-from tb_macro.contact.stepwise import year_index_jax
-from tb_macro.inputs import get_norm_conmat, load_who_outcomes
-from tb_macro.mixing import canberra_distance, get_norm_c_matrix, normalise_by_spectral_radius
-from tb_macro.model import (
+from vacf.contact import prepare_smooth, prepare_stepwise
+from vacf.contact.pchip import eval_jax
+from vacf.contact.stepwise import year_index_jax
+from vacf.inputs import get_norm_conmat, load_who_outcomes
+from vacf.mixing import (
+    canberra_distance,
+    get_norm_c_matrix,
+    homogeneous_matrix,
+    normalise_by_spectral_radius,
+)
+from vacf.model import (
     PMAP,
     STATIC,
     baseline_mixing,
@@ -55,9 +61,9 @@ from tb_macro.model import (
     save_plan,
     spline_mixing,
 )
-from tb_macro.parameters import BASE_PARAMS
-from tb_macro.solvers import CALIBRATION_SOLVER as _CALIBRATION_BACKEND
-from tb_macro.targets import (
+from vacf.parameters import BASE_PARAMS
+from vacf.solvers import CALIBRATION_SOLVER as _CALIBRATION_BACKEND
+from vacf.targets import (
     INF_PREV_TARGET,
     LATENT_TARGET,
     NOTIF_TARGET,
@@ -94,6 +100,11 @@ TERM_NAMES: tuple[str, ...] = (
     "infectiousness",
     "mixing",
 )
+
+#: Terms summed when mixing is homogeneous. The Canberra term compares the modelled contact
+#: matrix with empirical contact data; under homogeneous mixing there is no fitted matrix to
+#: compare, so the term would contribute a constant penalty and distort ``mixing_dist_sd``.
+EPI_TERM_NAMES: tuple[str, ...] = tuple(n for n in TERM_NAMES if n != "mixing")
 
 Fold = Callable[[dict[str, Any]], dict[str, Any]]
 Mixing = Callable[[Any, dict[str, Any]], Any]
@@ -211,8 +222,14 @@ def _terms(
     matrix: Any,
     mixing_dist_sd: Any,
     targets: dict[str, Any],
+    include_mixing: bool = True,
 ) -> dict[str, Any]:
-    """The seven log-density contributions. Each is a scalar."""
+    """The log-density contributions. Each is a scalar.
+
+    Seven terms with contact-data-informed mixing; six when mixing is homogeneous, where
+    the Canberra term is omitted rather than set to zero, so that an unused
+    ``mixing_dist_sd`` cannot silently influence the density.
+    """
     latent = _interp(_sum_rows(compartments, LATENT_ROWS), targets["latent_time"])
     adult = _interp(_sum_rows(compartments, ADULT_ROWS), targets["latent_time"])
     notifications = _interp(_flow_total(result, "detection"), targets["notif_times"])
@@ -224,15 +241,67 @@ def _terms(
     high, inf_prev, _ = _adult_pulmonary(compartments, targets["inf_time"])
     end_prop = end_prev / (end_pop + _EPS)
     base_prop = base_prev / (base_pop + _EPS)
-    distance = canberra_distance(matrix, targets["conmat"])
-    return {
+    terms = {
         "latent": _logit_normal_log_prob(latent / (adult + _EPS), targets["latent_value"]),
         "notifications": _log_normal_log_prob(notifications, targets["notif_values"]).mean(),
         "deaths": _log_normal_log_prob(deaths, targets["death_values"]).mean(),
         "prevalence": _logit_normal_log_prob(pulmonary / (pop + _EPS), targets["prev_value"]),
         "decline": _log_normal_log_prob(end_prop / (base_prop + _EPS), targets["decline_value"]),
         "infectiousness": _logit_normal_log_prob(high / (inf_prev + _EPS), targets["inf_value"]),
-        "mixing": dist.Normal(0.0, mixing_dist_sd).log_prob(distance),
+    }
+    if include_mixing:
+        distance = canberra_distance(matrix, targets["conmat"])
+        terms["mixing"] = dist.Normal(0.0, mixing_dist_sd).log_prob(distance)
+    return terms
+
+
+def target_trajectories(result: Any) -> pd.DataFrame:
+    """Annual model counterpart of each epidemiological calibration target.
+
+    Uses the same compartment and flow selections as :func:`_terms`, before interpolation
+    onto observation times, so plotting these against :func:`observed_targets` shows what
+    the likelihood compares. ``latent``, ``prevalence`` and ``infectiousness`` are
+    proportions of adults (``YOUNG_END_AGE`` and over); ``notifications`` counts routine
+    detection only, as the likelihood does. The decline target is a ratio of
+    ``prevalence`` at two times, so it has no column of its own.
+    """
+    compartments = _output_data(result, "compartments")
+    frac = BASE_PARAMS["prop_lowinf_bactpos"]
+    adult = _sum_rows(compartments, ADULT_ROWS)
+    high = _sum_rows(compartments, HIGH_ROWS)
+    pulmonary = (
+        high + _sum_rows(compartments, LOW_ROWS) * frac + _sum_rows(compartments, TREATMENT_ROWS)
+    )
+    columns = {
+        "latent": _sum_rows(compartments, LATENT_ROWS) / adult,
+        "notifications": _flow_total(result, "detection"),
+        "deaths": _flow_total(result, "tb_mortality") + _flow_total(result, "rx_death"),
+        "prevalence": pulmonary / adult,
+        "infectiousness": high / pulmonary,
+    }
+    years = START_TIME + np.arange(compartments.shape[0], dtype=float)
+    return pd.DataFrame(
+        {name: np.asarray(values) for name, values in columns.items()},
+        index=pd.Index(years, name="year"),
+    )
+
+
+def observed_targets() -> dict[str, pd.Series]:
+    """Calibration data in the units the likelihood compares, indexed by calendar time.
+
+    ``decline`` is adult pulmonary prevalence relative to the first survey round, so the
+    base round is 1 by definition and only the second point is informative.
+    """
+    decline = PREV_DECLINE_TARGET.sort_index()
+    _, _, who_mort = load_who_outcomes(ISO3)
+    deaths = who_mort.dropna()
+    return {
+        "latent": LATENT_TARGET / 1e2,
+        "notifications": NOTIF_TARGET,
+        "deaths": pd.Series(deaths.to_numpy(dtype=float), index=deaths.index.astype(float)),
+        "prevalence": PULM_PREV_TARGET / 1e5,
+        "decline": pd.Series([1.0, decline.iloc[1] / decline.iloc[0]], index=decline.index),
+        "infectiousness": INF_PREV_TARGET,
     }
 
 
@@ -258,6 +327,7 @@ def make_log_likelihood(
     mixing: Mixing | None = spline_mixing,
     fold: Fold | None = fold_spline_contact,
     solver: dict[str, Any] | None = None,
+    include_mixing_term: bool = True,
 ) -> Callable[[dict[str, Any]], dict[str, Any]]:
     """Log-likelihood of one parameter draw, and the seven terms that sum to it.
 
@@ -265,7 +335,7 @@ def make_log_likelihood(
     for the Canberra term, so both see the same matrix. ``fold`` runs once per
     draw, before the solve, and its arrays are passed in through ``params``.
     Defaults match the corrected model: spline mixing and
-    :func:`tb_macro.model.fold_spline_contact`.
+    :func:`vacf.model.fold_spline_contact`.
 
     The returned function is jitted. ``total`` is the density NUTS should
     factor. It is ``-1e10`` when the solver does not report success. The
@@ -289,9 +359,16 @@ def make_log_likelihood(
             matrix = _baseline_matrix(prepared)
         else:
             matrix = mixing(MIXING_TARGET_YEAR, prepared)
-        terms = _terms(compartments, result, matrix, prepared["mixing_dist_sd"], targets)
+        terms = _terms(
+            compartments,
+            result,
+            matrix,
+            prepared.get("mixing_dist_sd"),
+            targets,
+            include_mixing=include_mixing_term,
+        )
         total = jnp.zeros(())
-        for name in TERM_NAMES:
+        for name in TERM_NAMES if include_mixing_term else EPI_TERM_NAMES:
             total = total + terms[name]
         ok = lax.stop_gradient(jnp.asarray(result.solver.ok))
         evaluated = dict(terms)
@@ -362,6 +439,24 @@ def _smooth_case() -> MixingCase:
     return MixingCase("smooth", mixing, fold)
 
 
+def _homogeneous_case() -> MixingCase:
+    """Age-homogeneous mixing: no contact survey data informs the age pattern.
+
+    The population spline supplies time-varying age shares, so the matrix still tracks the
+    changing age structure. There is nothing to fold: ``bg_mixing``, ``a_spread`` and
+    ``pc_strength`` shape a contact kernel that this case does not build.
+    """
+    contact = prepare_smooth(*_static_arrays())
+    knot_x = contact.knot_x
+    pop_y = contact.pop_y
+    pop_m = contact.pop_m
+
+    def mixing(calendar: Any, params: dict[str, Any]) -> Any:
+        return homogeneous_matrix(eval_jax(calendar, knot_x, pop_y, pop_m))
+
+    return MixingCase("homogeneous", mixing, None)
+
+
 def _spline_case() -> MixingCase:
     """Folded spline: same contact path as default ``run`` / remote calibration."""
     return MixingCase("spline", spline_mixing, fold_spline_contact)
@@ -380,6 +475,7 @@ def build_mixing_cases() -> tuple[MixingCase, ...]:
         _stepwise_case(),
         _smooth_case(),
         _spline_case(),
+        _homogeneous_case(),
     )
 
 

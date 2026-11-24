@@ -8,14 +8,14 @@ import numpy as np
 import pandas as pd
 from jax import numpy as jnp
 
-from tb_macro.constants import (
+from vacf.constants import (
     AGE_STRATA,
     CALENDAR_YEAR_MIDPOINT,
     DATA_PATH,
     ISO3,
     MAX_AGE,
 )
-from tb_macro.mixing import normalise_by_spectral_radius
+from vacf.mixing import normalise_by_spectral_radius
 
 
 def get_country_pop(

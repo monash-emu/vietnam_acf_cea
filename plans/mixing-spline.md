@@ -133,7 +133,7 @@ eigensolver, on a matrix whose dominant root is known to be real and simple,
 and one that JAX only lowers on CPU. That last point is not a detail — it is
 why the present vector field cannot run on a GPU at all.
 
-`tb_macro.contact.perron` replaces it with normalise-and-square. Squaring a
+`vacf.contact.perron` replaces it with normalise-and-square. Squaring a
 matrix squares `|λ₂/λ₁|`, so `n` squarings are worth `2**n` power iterations;
 ten of them are ten batched 8×8 products. The result is numerically rank one,
 so its row and column sums are the dominant vectors, and the radius is their

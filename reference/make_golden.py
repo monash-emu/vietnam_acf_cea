@@ -31,18 +31,18 @@ import pyarrow.parquet as pq
 
 ROOT = Path(__file__).resolve().parents[1]
 SNAPSHOT = ROOT / "reference" / "snapshot"
-sys.path.insert(0, str(SNAPSHOT / "src" / "tb_macro"))
+sys.path.insert(0, str(SNAPSHOT / "src" / "vacf"))
 
-from tb_macro.constants import (  # noqa: E402
+from vacf.constants import (  # noqa: E402
     AGE_STRATA,
     END_TIME,
     ISO3,
     START_TIME,
 )
-from tb_macro.demography import prepare_pop_data_for_entries  # noqa: E402
-from tb_macro.epi import add_flows_to_model, get_base_model, initialise_pops  # noqa: E402
-from tb_macro.inputs import load_demography, load_fertility, load_who_outcomes  # noqa: E402
-from tb_macro.outputs import (  # noqa: E402
+from vacf.demography import prepare_pop_data_for_entries  # noqa: E402
+from vacf.epi import add_flows_to_model, get_base_model, initialise_pops  # noqa: E402
+from vacf.inputs import load_demography, load_fertility, load_who_outcomes  # noqa: E402
+from vacf.outputs import (  # noqa: E402
     get_age_deaths,
     get_age_inc,
     get_age_notifs,
@@ -50,7 +50,7 @@ from tb_macro.outputs import (  # noqa: E402
     get_age_prev,
     get_age_pulm_prev,
 )
-from tb_macro.parameters import BASE_PARAMS, get_nuts_init_values  # noqa: E402
+from vacf.parameters import BASE_PARAMS, get_nuts_init_values  # noqa: E402
 
 OUT = ROOT / "tests" / "golden"
 YEARS = np.arange(START_TIME, END_TIME, 1.0)

@@ -20,7 +20,7 @@ from calibration_golden import (  # noqa: E402
     load_params,
     load_terms,
 )
-from tb_macro.calibration import (
+from vacf.calibration import (
     TERM_NAMES as CALIB_TERM_NAMES,
     build_mixing_cases,
     compile_case,

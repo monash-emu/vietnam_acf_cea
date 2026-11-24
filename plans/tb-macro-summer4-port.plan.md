@@ -1,9 +1,9 @@
 ---
-name: tb-macro-summer4-port
-description: Port the TB macroeconomics model (summer3wip, numpyro NUTS) to summer4 in a new pixi repo, monash-emu/tb-macro-summer4 — first on today's summer4 API at numerical parity, then upgraded package by package until no hand-written glue remains.
+name: vacf-port
+description: Port the TB macroeconomics model (summer3wip, numpyro NUTS) to summer4 in a new pixi repo, monash-emu/vacf — first on today's summer4 API at numerical parity, then upgraded package by package until no hand-written glue remains.
 ---
 
-# tb_macro → summer4 (`monash-emu/tb-macro-summer4`)
+# vacf → summer4 (`monash-emu/vacf`)
 
 ## Context
 
@@ -12,15 +12,15 @@ description: Port the TB macroeconomics model (summer3wip, numpyro NUTS) to summ
 builds the model, runs it, makes a synthetic infection target and calibrates
 `contact_rate` with numpyro NUTS.
 
-This plan lands it in a **new repository**, `monash-emu/tb-macro-summer4`,
+This plan lands it in a **new repository**, `monash-emu/vacf`,
 managed with pixi, depending on summer4 from GitHub. It is also kept in summer4
-as `plans/tb-macro-summer4-port.plan.md` and copied into the new repo's `plans/`
+as `plans/vacf-port.plan.md` and copied into the new repo's `plans/`
 in phase M0.
 
 **Authoritative gap record:** summer4 `docs/evaluation/tb-ports.md`, rows
 `TM1`–`TM9`. **Feature work:** `plans/tb-ports-feature-completeness.plan.md`.
 
-Unlike Kiribati, **tb_macro is implementable on summer4 today.** Every `TM` row
+Unlike Kiribati, **vacf is implementable on summer4 today.** Every `TM` row
 has a route; the non-`full` ones need hand-written glue (a `derived_fn` force of
 infection, a hand-built initial state, a hand-written numpyro model). So this
 port runs in two stages:
@@ -36,7 +36,7 @@ under `monash-emu`.
 
 ### What the original model is
 
-`src/tb_macro/tb_macro/{constants,epi,utils}.py` and `notebooks/01-TBModel.ipynb`:
+`src/vacf/vacf/{constants,epi,utils}.py` and `notebooks/01-TBModel.ipynb`:
 
 - **Compartments.** `disease_state`: `mtb_naive incipient contained cleared active
   treatment recovered`; `age`: `0 5 15` on everything; `infectious`: `low high`
@@ -76,15 +76,15 @@ under `monash-emu`.
 ## Repository shape
 
 ```
-tb-macro-summer4/
+vacf/
 ├── pixi.toml
-├── pyproject.toml                 # package tb_macro (hatchling), black line-length 100
+├── pyproject.toml                 # package vacf (hatchling), black line-length 100
 ├── AGENTS.md  LICENSE              # BSD-2-Clause, attributing the original repo
-├── plans/tb-macro-summer4-port.plan.md
-├── src/tb_macro/
+├── plans/vacf-port.plan.md
+├── src/vacf/
 │   ├── constants.py  functions.py  model.py  outputs.py  calibration.py
 ├── reference/                     # runs ONLY in the reference env
-│   ├── tb_macro_original/         # vendored read-only copy of the original package
+│   ├── vacf_original/         # vendored read-only copy of the original package
 │   └── make_golden.py
 ├── tests/
 │   ├── golden/*.parquet
@@ -96,7 +96,7 @@ tb-macro-summer4/
 
 ```toml
 [workspace]
-name = "tb-macro-summer4"
+name = "vacf"
 channels = ["conda-forge"]
 platforms = ["osx-arm64", "linux-64"]
 
@@ -116,7 +116,7 @@ arviz = "*"
 plotly = ">=6.6, <7"
 ipywidgets = "*"
 nbformat = "*"
-tb_macro = { path = ".", editable = true }
+vacf = { path = ".", editable = true }
 
 [tasks]
 test = "pytest -q"
@@ -163,12 +163,12 @@ summer4 pin incompatible JAX ranges, so they must not share a solve.
 
 ### M0 — Scaffold and goldens
 
-1. Create `monash-emu/tb-macro-summer4` (ask the user before creating the repo),
+1. Create `monash-emu/vacf` (ask the user before creating the repo),
    add the layout, `pixi.toml`, `AGENTS.md`, `LICENSE`, CI running `pixi run test`
    on `linux-64`, and a manual-dispatch job that regenerates goldens and fails on
    any difference.
-2. Vendor the original `tb_macro` package read-only into
-   `reference/tb_macro_original/`, and the notebook's `infect_process`,
+2. Vendor the original `vacf` package read-only into
+   `reference/vacf_original/`, and the notebook's `infect_process`,
    population and `base_params` into `reference/make_golden.py`.
 3. `make_golden.py` builds the model exactly as the notebook does, runs it through
    `CompartmentalEpiModel.run(params, solver_kwargs=...)` with tightened
@@ -190,7 +190,7 @@ summer4 and reads the goldens.
 
 ### M1 — Model on today's summer4 API
 
-`src/tb_macro/model.py`, `functions.py`:
+`src/vacf/model.py`, `functions.py`:
 
 - **Map** (`TM1`): `state`, `age`, then `stratify(infectious, where=state["active"])`,
   `stratify(clinical, where=state["active"])`.
@@ -235,7 +235,7 @@ the originals at 100 times.
 
 ### M2 — Calibration notebook
 
-`notebooks/01-TBModel.ipynb` and `src/tb_macro/calibration.py`:
+`notebooks/01-TBModel.ipynb` and `src/vacf/calibration.py`:
 
 - Build, run, plot compartments by disease state (plotly, as the original).
 - Synthetic target: the rolling-sum series at `contact_rate = 0.25`, fuzzed with a

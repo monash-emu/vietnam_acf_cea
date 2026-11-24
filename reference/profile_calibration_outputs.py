@@ -27,15 +27,15 @@ from typing import Any, Callable
 import jax
 from jax import numpy as jnp
 
-from tb_macro.calibration import (
+from vacf.calibration import (
     CALIBRATION_SOLVER,
     build_mixing_cases,
     compile_case,
     make_log_likelihood,
 )
-from tb_macro.constants import OUTPUT_PATH, SCENARIO_PARAMS
-from tb_macro.model import save_plan
-from tb_macro.parameters import BASE_PARAMS, PARAM_BOUNDS, get_nuts_init_values
+from vacf.constants import OUTPUT_PATH, SCENARIO_PARAMS
+from vacf.model import save_plan
+from vacf.parameters import BASE_PARAMS, PARAM_BOUNDS, get_nuts_init_values
 
 # Bookkeeping / wrapper names excluded from the named-op table.
 _SKIP_PREFIXES: tuple[str, ...] = (

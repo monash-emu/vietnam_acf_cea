@@ -13,9 +13,9 @@ def _nb(cells: list) -> nbf.NotebookNode:
     nb = nbf.v4.new_notebook()
     nb["metadata"] = {
         "kernelspec": {
-            "display_name": "tb-macro-summer4 (pixi)",
+            "display_name": "vacf (pixi)",
             "language": "python",
-            "name": "tb-macro-summer4",
+            "name": "vacf",
         },
         "language_info": {"name": "python", "pygments_lexer": "ipython3"},
     }
@@ -47,11 +47,11 @@ def notebook_01() -> None:
 Downloads demographic and TB programme CSVs into `data/`, the same way
 `tweak_cases_calib` `notebooks/01-Inputs.ipynb` does.
 
-Loaders in `tb_macro.inputs` still pin the **vendored** filenames already in
+Loaders in `vacf.inputs` still pin the **vendored** filenames already in
 this repository. Running this notebook writes new timestamped files; it does
 not switch the model until those paths in `inputs.py` are updated.
 
-Use the **tb-macro-summer4 (pixi)** kernel. Needs network access."""
+Use the **vacf (pixi)** kernel. Needs network access."""
             ),
             _md("## UN demographic data provenance\n\n"
                 "All UN demographic files downloaded from "
@@ -63,7 +63,7 @@ Use the **tb-macro-summer4 (pixi)** kernel. Needs network access."""
 import pandas as pd
 from datetime import UTC, datetime
 
-from tb_macro.constants import DATA_PATH
+from vacf.constants import DATA_PATH
 
 url = (
     "https://population.un.org/wpp/assets/Excel%20Files/1_Indicator%20(Standard)/"
@@ -173,14 +173,14 @@ Writes a single-age population CSV and runs `conmat_matrix.R` so
 Requires R with the `conmat` package. The model already vendors
 `conmat_all_VNM.csv`; only re-run when regenerating mixing inputs.
 
-Use the **tb-macro-summer4 (pixi)** kernel."""
+Use the **vacf (pixi)** kernel."""
             ),
             _code(
                 """
 import subprocess
 
-from tb_macro.constants import DATA_PATH, ISO3
-from tb_macro.inputs import write_conmat_pop_csv
+from vacf.constants import DATA_PATH, ISO3
+from vacf.inputs import write_conmat_pop_csv
 
 conmat_dir = DATA_PATH / "mixing"
 countries = [ISO3]
@@ -226,7 +226,7 @@ not the golden-matching path. Mixing heatmaps are recomputed with
 - `random` / `map` — draw from a saved ArviZ `.nc` under `outputs/` or
   `outputs/local/`
 
-Use the **tb-macro-summer4 (pixi)** kernel. If this folder is the notebook
+Use the **vacf (pixi)** kernel. If this folder is the notebook
 cwd, the `plots` helper imports via the cell below."""
             ),
             _code(
@@ -239,15 +239,15 @@ import optax
 from jax import jit, nn, value_and_grad
 from jax import numpy as jnp
 
-from tb_macro.calibration import (
+from vacf.calibration import (
     TERM_NAMES,
     build_mixing_cases,
     compile_case,
     make_log_likelihood,
 )
-from tb_macro.constants import END_TIME, ISO3, LOCAL_OUTPUT_PATH, OUTPUT_PATH
-from tb_macro.model import run
-from tb_macro.parameters import BASE_PARAMS, PARAM_BOUNDS, get_nuts_init_values
+from vacf.constants import END_TIME, ISO3, LOCAL_OUTPUT_PATH, OUTPUT_PATH
+from vacf.model import run
+from vacf.parameters import BASE_PARAMS, PARAM_BOUNDS, get_nuts_init_values
 
 # Allow `from plots import ...` when the kernel cwd is the repo root or this folder.
 _here = Path.cwd()
@@ -452,7 +452,7 @@ def notebook_04() -> None:
 
 Summer4 port of `tweak_cases_calib` `notebooks/04-Calibration.ipynb`.
 
-Same density as `tb_macro.calibration.make_log_likelihood` (seven terms +
+Same density as `vacf.calibration.make_log_likelihood` (seven terms +
 Canberra mixing distance), uniform priors on every name in `PARAM_BOUNDS`,
 NUTS tree depth 5, four parallel chains, `PRNGKey(2)`, started at
 `get_nuts_init_values()`. Warmup and samples use `N_RUNS_LOCAL` (40), matching
@@ -463,7 +463,7 @@ Corrected default model + folded spline. Not `BayesianModel` — summer4 stock
 likelihoods do not cover the log/logit/Canberra terms yet.
 
 Restart the kernel and run from the top so the device-count cell runs before
-JAX imports. Use **tb-macro-summer4 (pixi)**."""
+JAX imports. Use **vacf (pixi)**."""
             ),
             _md("## Four CPU devices"),
             _code(
@@ -495,16 +495,16 @@ from jax.random import PRNGKey
 from numpyro import distributions as dist
 from numpyro import infer
 
-from tb_macro.calibration import (
+from vacf.calibration import (
     MCMC_EXTRA_FIELDS,
     build_mixing_cases,
     compile_case,
     inference_data_from_mcmc,
     make_log_likelihood,
 )
-from tb_macro.constants import LOCAL_OUTPUT_PATH, N_RUNS_LOCAL
-from tb_macro.parameters import BASE_PARAMS, PARAM_BOUNDS, get_nuts_init_values
-from tb_macro.utils import write_run_log
+from vacf.constants import LOCAL_OUTPUT_PATH, N_RUNS_LOCAL
+from vacf.parameters import BASE_PARAMS, PARAM_BOUNDS, get_nuts_init_values
+from vacf.utils import write_run_log
 
 print(f"devices {jax.local_device_count()}  N_RUNS_LOCAL {N_RUNS_LOCAL}")
 """
@@ -597,7 +597,7 @@ summarises the posterior, overlays priors, and plots count/rate panels against
 calibration targets. Age bands are the **model** ages (summed for totals) —
 single-year regroup from summer3 is not ported.
 
-Use the **tb-macro-summer4 (pixi)** kernel."""
+Use the **vacf (pixi)** kernel."""
             ),
             _code(
                 """
@@ -608,27 +608,27 @@ import arviz as az
 import numpy as np
 import pandas as pd
 
-from tb_macro.constants import (
+from vacf.constants import (
     LOCAL_OUTPUT_PATH,
     N_OUTPUT_SAMPLES,
     OUTPUT_PATH,
     SCENARIO_PARAMS,
     YOUNG_END_AGE,
 )
-from tb_macro.inputs import load_who_outcomes
-from tb_macro.outputs import (
+from vacf.inputs import load_who_outcomes
+from vacf.outputs import (
     get_posterior_samples,
     load_sampled_outputs,
     rerun_model_for_outputs,
 )
-from tb_macro.parameters import PARAM_NAMES
-from tb_macro.targets import (
+from vacf.parameters import PARAM_NAMES
+from vacf.targets import (
     LATENT_TARGET,
     NOTIF_TARGET,
     PREV_DECLINE_TARGET,
     PULM_PREV_TARGET,
 )
-from tb_macro.constants import ISO3
+from vacf.constants import ISO3
 
 _here = Path.cwd()
 for candidate in (_here, _here / "notebooks" / "summer3", _here / "summer3"):
@@ -843,46 +843,46 @@ Default model: corrected replacement deaths, progression weights that sum to
 one, `rel_infectiousness_subclin` on subclinical disease, folded spline
 contact, smooth entry. `match_golden=True` restores the three summer3 bugs
 plus year-frozen mixing and step entry for golden parity. Solver backends live
-in `tb_macro.solvers` (`Diffrax` + `PIDController`); calibration uses
+in `vacf.solvers` (`Diffrax` + `PIDController`); calibration uses
 `CALIBRATION_SOLVER`.
 
-Use the **tb-macro-summer4 (pixi)** kernel."""
+Use the **vacf (pixi)** kernel."""
             ),
             _md(
                 """## Demographics
 
-Age breaks are `AGE_STRATA` in `tb_macro.constants`. UN population, mortality
-and fertility loaders are in `tb_macro.inputs`; entry rates and smooth vs step
-birth lookups are in `tb_macro.demography`. Replacement (non-TB) deaths feed
+Age breaks are `AGE_STRATA` in `vacf.constants`. UN population, mortality
+and fertility loaders are in `vacf.inputs`; entry rates and smooth vs step
+birth lookups are in `vacf.demography`. Replacement (non-TB) deaths feed
 age 0 on the default path.
 
 ## Natural history and detection
 
-Flows are declared in `tb_macro.model.build_model`: infection via
+Flows are declared in `vacf.model.build_model`: infection via
 `ForceOfInfection`, latency and clinical transitions, cosine detection
-scale-up (`tb_macro.curves.get_cos_multicurve`), treatment and ACF hazards
+scale-up (`vacf.curves.get_cos_multicurve`), treatment and ACF hazards
 filled through `derived_fn`, triangular seeding, and ageing.
 
 ## Mixing
 
-Static year-frozen construction is `tb_macro.mixing.get_norm_c_matrix`. The
-default run folds a cubic spline (`tb_macro.contact` + `fold_spline_contact` /
+Static year-frozen construction is `vacf.mixing.get_norm_c_matrix`. The
+default run folds a cubic spline (`vacf.contact` + `fold_spline_contact` /
 `spline_mixing` in `model.py`) once per parameter draw.
 
 ## Calibration
 
-`tb_macro.calibration.make_log_likelihood` is the seven-term summer3 density
+`vacf.calibration.make_log_likelihood` is the seven-term summer3 density
 (latent, notifications, TB deaths, adult pulmonary prevalence, survey decline,
 high-infectious share, Canberra mixing distance). It is hand-rolled: summer4
 `BayesianModel` stock likelihoods do not yet express those transforms. Targets
-are in `tb_macro.targets`."""
+are in `vacf.targets`."""
             ),
             _md("## Fixed parameters"),
             _code(
                 """
 import pandas as pd
 
-from tb_macro.parameters import BASE_PARAMS, PARAM_BOUNDS, PARAM_NAMES
+from vacf.parameters import BASE_PARAMS, PARAM_BOUNDS, PARAM_NAMES
 
 fixed = {k: v for k, v in BASE_PARAMS.items() if k not in PARAM_BOUNDS}
 pd.DataFrame(
