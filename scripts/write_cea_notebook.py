@@ -2,6 +2,7 @@
 
   notebooks/10-ACF-CEA-Run.ipynb      calibrate, run every arm at posterior draws, store
   notebooks/11-ACF-CEA-Results.ipynb  load a stored run, plot it, write shareable CSVs
+  notebooks/12-ACF-Slides.ipynb       Beamer slides on the model, fits and epi projections
 
 Kept as a script so the notebooks are reproducible and reviewable as source rather than as
 JSON blobs. Run with ``pixi run python scripts/write_cea_notebook.py``. This overwrites both
@@ -392,6 +393,58 @@ pd.read_csv(RUN / "csv" / "epi_outcomes.csv").head(6)
 ]
 
 
+SLIDES_CELLS = [
+    md("""
+# Slides: transmission model and epidemiological projections
+
+Builds a Beamer deck, as a `.tex` file and its figures, from a stored run: model structure
+and assumptions, calibration and fits, scenarios, and projected epidemiological impact.
+Every number on the slides is read from the run and from `vacf.economics.study`, so
+rebuilding against the MASSIVE run updates the deck.
+
+The deck reuses the theme (`Unipd`) and diagrams of the Kiribati talk
+(`images/TB Model.pdf`, `images/ICE_TB.png`, `images/Classif.pdf`), so it compiles in that
+folder. Copy `vietnam_model_slides.tex` and the `images_2/` folder from `OUT` into the
+Kiribati slides folder, and build there as usual. Check that the reused model diagram still
+matches this model, which has no preventive treatment and no hard-to-reach stratum.
+"""),
+    code(r"""
+from vacf.constants import OUTPUT_PATH
+from vacf.economics import analysis, slides, study
+
+RUN = OUTPUT_PATH / "local-sample-n100"
+OUT = RUN / "slides"
+
+DETAILS = dict(
+    title="Active TB case finding in Viet Nam: transmission model and epidemiological projections",
+    short_title="Viet Nam ACF TB modelling",
+    author="Romain Ragonnet, PhD, MSc",
+    short_author="Romain Ragonnet",
+    institute=(
+        r"Epidemiological Modelling Unit (EMU)\\"
+        r"School of Public Health and Preventive Medicine\\"
+        r"Monash University, Melbourne, Australia"
+    ),
+    date=r"\today",
+)
+"""),
+    code("""
+posterior = analysis.load_posterior_outputs(RUN)
+tex = slides.write_slides(posterior, OUT, run_name=RUN.name, **DETAILS)
+print(f"wrote {tex}")
+for path in sorted((OUT / slides.FIGURE_DIR).glob("*.pdf")):
+    print(f"      {path}")
+"""),
+    md("## Preview of the figures"),
+    code("""
+display(slides.fit_figure(posterior))
+for arm in study.SCENARIOS[1:]:
+    display(slides.impact_figure(posterior, arm.name))
+display(slides.cumulative_figure(posterior))
+"""),
+]
+
+
 def _notebook(cells: list[dict]) -> dict:
     for index, cell in enumerate(cells):
         cell["id"] = f"cell-{index:02d}"  # nbformat requires a stable id per cell
@@ -409,6 +462,7 @@ def _notebook(cells: list[dict]) -> dict:
 OUTPUTS = {
     NOTEBOOKS / "10-ACF-CEA-Run.ipynb": RUN_CELLS,
     NOTEBOOKS / "11-ACF-CEA-Results.ipynb": RESULTS_CELLS,
+    NOTEBOOKS / "12-ACF-Slides.ipynb": SLIDES_CELLS,
 }
 
 if __name__ == "__main__":
